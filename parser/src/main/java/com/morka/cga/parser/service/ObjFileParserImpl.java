@@ -1,17 +1,22 @@
 package com.morka.cga.parser.service;
 
-import com.morka.cga.parser.model.*;
+import com.morka.cga.parser.model.Face;
+import com.morka.cga.parser.model.FaceElement;
+import com.morka.cga.parser.model.ObjGroup;
+import com.morka.cga.parser.model.Vertex;
+import com.morka.cga.parser.model.VertexNormal;
+import com.morka.cga.parser.model.VertexTexture;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
-
-import static java.util.Collections.emptyList;
 
 public final class ObjFileParserImpl implements ObjFileParser {
 
@@ -29,20 +34,23 @@ public final class ObjFileParserImpl implements ObjFileParser {
 
     private static final Pattern FACE_ELEMENT_VERTEX_PATTERN = Pattern.compile("^[1-9][0-9+]*$");
 
-    private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_PATTERN = Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*$");
+    private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_PATTERN =
+            Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*$");
 
-    private static final Pattern FACE_ELEMENT_VERTEX_NORMAL_PATTERN = Pattern.compile("^[1-9][0-9+]*//[1-9][0-9+]*$");
+    private static final Pattern FACE_ELEMENT_VERTEX_NORMAL_PATTERN =
+            Pattern.compile("^[1-9][0-9+]*//[1-9][0-9+]*$");
 
-    private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN = Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
+    private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN =
+            Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
 
     @Override
     public ObjGroup parse(File file) {
         try {
-            List<Face> faces = new ArrayList<>();
-            Map<Integer, Vertex> vertexMap = new HashMap<>();
-            Map<Integer, VertexTexture> vertexTextureMap = new HashMap<>();
-            Map<Integer, VertexNormal> vertexNormalMap = new HashMap<>();
-            for (String line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+            final var faces = new ArrayList<Face>();
+            final var vertexMap = new HashMap<Integer, Vertex>();
+            final var vertexTextureMap = new HashMap<Integer, VertexTexture>();
+            final var vertexNormalMap = new HashMap<Integer, VertexNormal>();
+            for (final var line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
                 if (line.startsWith(VERTEX_PREFIX))
                     vertexMap.put(vertexMap.size() + 1, parseVertex(line));
 
@@ -55,22 +63,22 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 if (line.startsWith(FACE_PREFIX))
                     faces.add(parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line));
             }
-            return new ObjGroup(faces);
+            return new ObjGroup(faces.toArray(new Face[0]));
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, () -> "Failed to load file %s.".formatted(file));
-            return new ObjGroup(emptyList());
+            return new ObjGroup(new Face[0]);
         }
     }
 
     private static Vertex parseVertex(String line) {
-        final String[] coords = line
+        final var coords = line
                 .substring(VERTEX_PREFIX.length())
                 .trim()
                 .split(SPACES_REGEX);
 
         assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
 
-        Vertex.VertexBuilder builder = Vertex.builder()
+        final var builder = Vertex.builder()
                 .x(Double.parseDouble(coords[0]))
                 .y(Double.parseDouble(coords[1]))
                 .z(Double.parseDouble(coords[2]));
@@ -81,14 +89,14 @@ public final class ObjFileParserImpl implements ObjFileParser {
     }
 
     private VertexTexture parseVertexTexture(String line) {
-        final String[] coords = line
+        final var coords = line
                 .substring(VERTEX_TEXTURE_PREFIX.length())
                 .trim()
                 .split(SPACES_REGEX);
 
         assert coords.length >= 1 : "Vertex texture didn't follow the pattern: vt u [v] [w]\nFound: %s".formatted(line);
 
-        final VertexTexture.VertexTextureBuilder builder = VertexTexture.builder().u(Double.parseDouble(coords[0]));
+        final var builder = VertexTexture.builder().u(Double.parseDouble(coords[0]));
         if (coords.length > 1)
             builder.v(Double.parseDouble(coords[1]));
         if (coords.length > 2)
@@ -98,7 +106,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
     }
 
     private VertexNormal parseVertexNormal(String line) {
-        final String[] coords = line
+        final var coords = line
                 .substring(VERTEX_NORMAL_PREFIX.length())
                 .trim()
                 .split(SPACES_REGEX);
@@ -116,7 +124,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
                            Map<Integer, VertexTexture> vertexTextureMap,
                            Map<Integer, VertexNormal> vertexNormalMap,
                            String line) {
-        final String[] faceElementsStringified = line.substring(FACE_PREFIX.length())
+        final var faceElementsStringified = line.substring(FACE_PREFIX.length())
                 .trim()
                 .split(SPACES_REGEX);
 
@@ -135,33 +143,34 @@ public final class ObjFileParserImpl implements ObjFileParser {
         if (FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN.matcher(faceElementsStringified[0]).matches())
             return parseFaceFromVertexAndTextureAndNormalsList(vertexMap, vertexTextureMap, vertexNormalMap, faceElementsStringified);
 
-        return new Face(emptyList());
+        return new Face(new FaceElement[0]);
     }
 
     private static Face parseFaceFromVertexesList(Map<Integer, Vertex> vertexMap, String[] faceElements) {
-        final List<FaceElement> elements = Arrays.stream(faceElements)
-                .mapToInt(Integer::parseInt)
-                .map(vertexNumber -> getFaceElementIndex(vertexMap.size(), vertexNumber))
-                .mapToObj(vertexMap::get)
-                .map(FaceElement.builder()::vertex)
-                .map(FaceElement.FaceElementBuilder::build)
-                .toList();
+        final var elements = new FaceElement[faceElements.length];
+        for (var i = 0; i < faceElements.length; i++) {
+            final var relativeIndex = Integer.parseInt(faceElements[i]);
+            final var index = getFaceElementIndex(vertexMap.size(), relativeIndex);
+            final var vertex = vertexMap.get(index);
+            final var faceElement = FaceElement.builder().vertex(vertex).build();
+            elements[i] = faceElement;
+        }
         return new Face(elements);
     }
 
     private static Face parseFaceFromVertexAndTexturesList(Map<Integer, Vertex> vertexMap,
                                                            Map<Integer, VertexTexture> vertexTextureMap,
                                                            String[] faceElementsStringified) {
-        List<FaceElement> faceElements = new ArrayList<>(faceElementsStringified.length);
-        for (String faceElement : faceElementsStringified) {
-            final String[] items = faceElement.split("/");
-            int vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
-            int vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
-            final FaceElement element = FaceElement.builder()
+        final var faceElements = new FaceElement[faceElementsStringified.length];
+        for (var i = 0; i < faceElementsStringified.length; i++) {
+            final var items = faceElementsStringified[i].split("/");
+            final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
+            final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
+            final var element = FaceElement.builder()
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
                     .build();
-            faceElements.add(element);
+            faceElements[i] = element;
         }
         return new Face(faceElements);
     }
@@ -169,16 +178,16 @@ public final class ObjFileParserImpl implements ObjFileParser {
     private Face parseFaceFromVertexAndNormalsList(Map<Integer, Vertex> vertexMap,
                                                    Map<Integer, VertexNormal> vertexNormalMap,
                                                    String[] faceElementsStringified) {
-        List<FaceElement> faceElements = new ArrayList<>(faceElementsStringified.length);
-        for (String faceElement : faceElementsStringified) {
-            final String[] items = faceElement.split("//");
-            int vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
-            int vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[1]));
-            final FaceElement element = FaceElement.builder()
+        final var faceElements = new FaceElement[faceElementsStringified.length];
+        for (var i = 0; i < faceElementsStringified.length; i++) {
+            final var items = faceElementsStringified[i].split("//");
+            final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
+            final var vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[1]));
+            final var element = FaceElement.builder()
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexNormal(vertexNormalMap.get(vertexNormalNumber))
                     .build();
-            faceElements.add(element);
+            faceElements[i] = element;
         }
         return new Face(faceElements);
     }
@@ -187,18 +196,18 @@ public final class ObjFileParserImpl implements ObjFileParser {
                                                              Map<Integer, VertexTexture> vertexTextureMap,
                                                              Map<Integer, VertexNormal> vertexNormalMap,
                                                              String[] faceElementsStringified) {
-        List<FaceElement> faceElements = new ArrayList<>(faceElementsStringified.length);
-        for (String faceElement : faceElementsStringified) {
-            final String[] items = faceElement.split("/");
-            int vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
-            int vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
-            int vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[2]));
+        final var faceElements = new FaceElement[faceElementsStringified.length];
+        for (var i = 0; i < faceElementsStringified.length; i++) {
+            final var items = faceElementsStringified[i].split("/");
+            final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
+            final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
+            final var vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[2]));
             final FaceElement element = FaceElement.builder()
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
                     .vertexNormal(vertexNormalMap.get(vertexNormalNumber))
                     .build();
-            faceElements.add(element);
+            faceElements[i] = element;
         }
         return new Face(faceElements);
     }
