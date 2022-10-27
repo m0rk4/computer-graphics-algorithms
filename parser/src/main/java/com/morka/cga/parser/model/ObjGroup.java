@@ -1,4 +1,6 @@
 package com.morka.cga.parser.model;
 
-public record ObjGroup(Face[] faces) {
+import java.util.List;
+
+public record ObjGroup(Face[] faces, List<Line> lines) {
 }

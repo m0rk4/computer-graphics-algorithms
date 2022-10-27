@@ -1,12 +1,12 @@
 package com.morka.cga.viewer.controller;
 
-import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.ObjGroup;
 import com.morka.cga.parser.service.ObjFileParser;
 import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
+import javafx.animation.AnimationTimer;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.FloatProperty;
@@ -15,6 +15,7 @@ import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleFloatProperty;
 import javafx.beans.property.SimpleIntegerProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
 import javafx.scene.Node;
@@ -23,11 +24,11 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.stage.FileChooser;
-import lombok.SneakyThrows;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 
 import static java.util.Objects.nonNull;
@@ -35,21 +36,29 @@ import static javafx.beans.binding.Bindings.createObjectBinding;
 
 public class MainController {
 
-    private final ExecutorService threadPool;
+    private final ExecutorService executorService;
 
     @FXML
     private BorderPane pane;
 
-    private final Group group = new Group();
+    private static final Group GROUP = new Group();
+    private static final ObservableList<Node> NODES = GROUP.getChildren();
 
     private final ObjFileParser parser = ObjFileParserBuilder.build();
 
-    private static final int W = 1280;
-    private static final int H = 690;
 
-    private WritableImageView currentBuffer;
-    private WritableImageView secondBuffer;
+    private static final int W = 1280;
+    private static final float W_2 = W / 2.f;
+    private static final int H = 690;
+    private static final float H_2 = H / 2.f;
+    private static final int ARGB_BLACK = 255 << 24;
+    private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
+    private final BlockingQueue<WritableImageView> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
+    private final BlockingQueue<WritableImageView> emptyBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
+    private WritableImageView currentBuffer;
+    private long lastFrameTimestampInNanoseconds;
+
 
     private static final SimpleObjectProperty<ObjGroup> OBJECT_BINDING = new SimpleObjectProperty<>();
 
@@ -82,7 +91,7 @@ public class MainController {
             xRotationProperty, yRotationProperty, zRotationProperty
     );
 
-    ObjectBinding<Matrix4D> modelMatrixBinding = createObjectBinding(
+    ObjectBinding<Matrix4D> modelMatrix = createObjectBinding(
             this::getModelMatrix,
             translationBinding, scaleBinding, rotationBinding
     );
@@ -121,19 +130,15 @@ public class MainController {
     }
 
     public MainController(ExecutorService executorService) {
-        threadPool = executorService;
+        this.executorService = executorService;
     }
 
     @FXML
     protected void initialize() {
-        final WritableImageView node = new WritableImageView(W, H);
-        pane.setCenter(group);
-        addUiNode(node);
-        currentBuffer = node;
-        secondBuffer = new WritableImageView(W, H);
-
-        modelMatrixBinding.addListener((__, ___, ____) -> repaint());
-        viewMatrix.addListener((__, ___, ____) -> repaint());
+        pane.setCenter(GROUP);
+        for (int i = 0; i < BUFFER_SIZE; i++) {
+            emptyBuffers.add(new WritableImageView(W, H));
+        }
 
         final var rotationStep = (float) Math.PI / 32.0f;
         final var translationStep = 10;
@@ -166,11 +171,46 @@ public class MainController {
         listenFor(KeyCode.Z, KeyCode.UP, () -> zTranslationProperty.set(zTranslationProperty.get() + translationStep));
         listenFor(KeyCode.Z, KeyCode.DOWN, () -> zTranslationProperty.set(zTranslationProperty.get() - translationStep));
 
+        modelMatrix.addListener((__, ___, ____) -> repaint());
+        viewMatrix.addListener((__, ___, ____) -> repaint());
+
         OBJECT_BINDING.addListener((__, ___, obj) -> {
             resetStates();
             if (nonNull(obj))
                 repaint();
         });
+
+        final var animationTimer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                try {
+                    if (fullBuffers.isEmpty())
+                        return;
+
+                    // skip when less than ~~16ms ~~60 fps
+                    if (now - lastFrameTimestampInNanoseconds < 16666666)
+                        return;
+
+                    lastFrameTimestampInNanoseconds = now;
+
+                    var buffer = fullBuffers.take();
+
+                    addUiNode(buffer);
+
+                    if (currentBuffer != null) {
+                        removeUiNode(currentBuffer);
+                        emptyBuffers.add(currentBuffer);
+                    }
+
+                    buffer.updateBuffer();
+
+                    currentBuffer = buffer;
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        animationTimer.start();
     }
 
     private void resetStates() {
@@ -190,11 +230,11 @@ public class MainController {
     }
 
     void addUiNode(Node node) {
-        group.getChildren().add(node);
+        NODES.add(node);
     }
 
     void removeUiNode(Node node) {
-        group.getChildren().remove(node);
+        NODES.remove(node);
     }
 
     private void repaint() {
@@ -251,65 +291,29 @@ public class MainController {
         yEyeProperty.set(degY);
     }
 
-    @SneakyThrows
     private void draw(ObjGroup group) {
-        System.out.println("--\nDraw Started");
-//        currentBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
-
-        final Face[] faces = group.faces();
-        final int length = faces.length;
-        final int seven = length / 7;
-        final int last = length % 7;
-
-        CompletableFuture[] tasks = new CompletableFuture[8];
-
-        // using second clear buffer
-        for (int i = 0; i < 7; i++)
-            tasks[i] = CompletableFuture.runAsync(getTask(secondBuffer, faces, i * seven, (i + 1) * seven), threadPool);
-        tasks[7] = CompletableFuture.runAsync(getTask(secondBuffer, faces, 7 * seven, 7 * seven + last), threadPool);
-
-        CompletableFuture.allOf(tasks).join();
-        // buffer is ready
-        secondBuffer.updateBuffer();
-        // show on ui
-        addUiNode(secondBuffer);
-        removeUiNode(currentBuffer);
-
-        // clear old one
-        currentBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
-
-        //swap bufs
-        WritableImageView temp = currentBuffer;
-        currentBuffer = secondBuffer;
-        secondBuffer = temp;
-//        currentBuffer.updateBuffer();
-
-//        getTask(faces, 0, faces.length).run();
-//        currentBuffer.updateBuffer();
-        System.out.println("FINIshed");
-    }
-
-    Runnable getTask(WritableImageView buffer, Face[] faces, int start, int end) {
-        return () -> {
-            for (int j = start; j < end; j++) {
-                final var face = faces[j];
-                final var faceElements = face.faceElements();
-                for (var i = 0; i < faceElements.length - 1; i++) {
+        executorService.submit(() -> {
+            try {
+                final var buffer = emptyBuffers.take();
+                buffer.setPixels(BACKGROUND_COLOR_ARRAY);
+                group.lines().parallelStream().forEach(line -> {
                     final var matrix = VIEWPORT_X_PROJECTION
                             .multiply(viewMatrix.get())
-                            .multiply(modelMatrixBinding.get());
-                    final var from = matrix.multiply(faceElements[i].getVertex());
-                    final var to = matrix.multiply(faceElements[i + 1].getVertex());
+                            .multiply(modelMatrix.get());
+                    final var from = matrix.multiply(line.from());
+                    final var to = matrix.multiply(line.to());
                     drawLine(buffer,
-                            Math.round(from.getX() + W / 2.f),
-                            Math.round(from.getY() + H / 2.f),
-                            Math.round(to.getX() + W / 2.f),
-                            Math.round(to.getY() + H / 2.f),
-                            255 << 24
-                    );
-                }
+                            Math.round(from.getX() + W_2),
+                            Math.round(from.getY() + H_2),
+                            Math.round(to.getX() + W_2),
+                            Math.round(to.getY() + H_2),
+                            ARGB_BLACK);
+                });
+                fullBuffers.add(buffer);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
-        };
+        });
     }
 
     private Matrix4D getModelMatrix() {
@@ -405,12 +409,6 @@ public class MainController {
     }
 
     private static Matrix4D getViewportMatrix() {
-//        return new Matrix4D(new float[][]{
-//                {W / 2.0f, 0, 0, W / 2.0f + W / 2.0f},
-//                {0, H / 2.0f, 0, H / 2.0f + H / 2.0f},
-//                {0, 0, 255 / 2.f, 255 / 2.f},
-//                {0, 0, 0, 1}
-//        });
         // TODO: replace
         return new Matrix4D(new float[][]{
                 {1.f, 0.f, 0.f, 0.f},
@@ -421,14 +419,14 @@ public class MainController {
     }
 
 
-    private void drawLine(WritableImageView imageView, int x1, int y1, int x2, int y2, int color) {
+    private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
         var dx = Math.abs(x2 - x1);
         var sx = x1 < x2 ? 1 : -1;
         var dy = -Math.abs(y2 - y1);
         var sy = y1 < y2 ? 1 : -1;
         var err = dx + dy;
         while (true) {
-            drawPixel(imageView, x1, y1, color);
+            drawPixel(buffer, x1, y1, color);
             if (x1 == x2 && y1 == y2) {
                 return;
             }
@@ -444,9 +442,9 @@ public class MainController {
         }
     }
 
-    private void drawPixel(WritableImageView imageView, int x, int y, int argbColor) {
+    private void drawPixel(WritableImageView buffer, int x, int y, int argbColor) {
         if (x >= 0 && x < W && y >= 0 && y < H)
-            imageView.setArgb(x, y, argbColor);
+            buffer.setArgb(x, y, argbColor);
     }
 
     @FXML

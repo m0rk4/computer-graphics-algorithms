@@ -2,6 +2,7 @@ package com.morka.cga.parser.service.impl;
 
 import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.FaceElement;
+import com.morka.cga.parser.model.Line;
 import com.morka.cga.parser.model.ObjGroup;
 import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.model.VertexNormal;
@@ -13,11 +14,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public final class ObjFileParserImpl implements ObjFileParser {
 
@@ -64,11 +67,23 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 if (line.startsWith(FACE_PREFIX))
                     faces.add(parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line));
             }
-            return new ObjGroup(faces.toArray(new Face[0]));
+            final var lines = faces.stream().flatMap(this::getLines).toList();
+            return new ObjGroup(faces.toArray(new Face[0]), lines);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, () -> "Failed to load file %s.".formatted(file));
-            return new ObjGroup(new Face[0]);
+            return new ObjGroup(new Face[0], Collections.emptyList());
         }
+    }
+
+    private Stream<Line> getLines(Face face) {
+        final var faceElements = face.faceElements();
+        final var result = new ArrayList<Line>(faceElements.length);
+        for (var i = 0; i < faceElements.length - 1; i++) {
+            final var from = faceElements[i].getVertex();
+            final var to = faceElements[i + 1].getVertex();
+            result.add(new Line(from, to));
+        }
+        return result.stream();
     }
 
     private static Vertex parseVertex(String line) {
