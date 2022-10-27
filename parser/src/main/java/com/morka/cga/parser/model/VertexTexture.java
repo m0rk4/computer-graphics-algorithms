@@ -6,9 +6,9 @@ import lombok.Data;
 @Data
 @Builder
 public class VertexTexture {
-    private final double u;
+    private final float u;
     @Builder.Default
-    private final double v = 0.0;
+    private final float v = 0.0f;
     @Builder.Default
-    private final double w = 0.0;
+    private final float w = 0.0f;
 }

@@ -1,5 +1,6 @@
 package com.morka.cga.parser.service;
 
+import com.morka.cga.parser.service.impl.ObjFileParserImpl;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -18,6 +19,6 @@ public class ObjFileParserImplTest {
 
         final var group = parser.parse(new File(resource.toURI()));
 
-        assertEquals(12, group.getFaces().length);
+        assertEquals(12, group.faces().length);
     }
 }

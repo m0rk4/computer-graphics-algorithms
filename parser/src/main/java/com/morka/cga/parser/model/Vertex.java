@@ -6,9 +6,9 @@ import lombok.Data;
 @Data
 @Builder
 public class Vertex {
-    private final double x;
-    private final double y;
-    private final double z;
+    private final float x;
+    private final float y;
+    private final float z;
     @Builder.Default
-    private final double w = 1.0;
+    private final float w = 1.0f;
 }

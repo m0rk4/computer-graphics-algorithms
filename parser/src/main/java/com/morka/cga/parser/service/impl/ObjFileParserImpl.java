@@ -1,4 +1,4 @@
-package com.morka.cga.parser.service;
+package com.morka.cga.parser.service.impl;
 
 import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.FaceElement;
@@ -6,6 +6,7 @@ import com.morka.cga.parser.model.ObjGroup;
 import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.model.VertexNormal;
 import com.morka.cga.parser.model.VertexTexture;
+import com.morka.cga.parser.service.ObjFileParser;
 
 import java.io.File;
 import java.io.IOException;
@@ -79,11 +80,11 @@ public final class ObjFileParserImpl implements ObjFileParser {
         assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
 
         final var builder = Vertex.builder()
-                .x(Double.parseDouble(coords[0]))
-                .y(Double.parseDouble(coords[1]))
-                .z(Double.parseDouble(coords[2]));
+                .x(Float.parseFloat(coords[0]))
+                .y(Float.parseFloat(coords[1]))
+                .z(Float.parseFloat(coords[2]));
         if (coords.length > 3)
-            builder.w(Double.parseDouble(coords[3]));
+            builder.w(Float.parseFloat(coords[3]));
 
         return builder.build();
     }
@@ -96,11 +97,11 @@ public final class ObjFileParserImpl implements ObjFileParser {
 
         assert coords.length >= 1 : "Vertex texture didn't follow the pattern: vt u [v] [w]\nFound: %s".formatted(line);
 
-        final var builder = VertexTexture.builder().u(Double.parseDouble(coords[0]));
+        final var builder = VertexTexture.builder().u(Float.parseFloat(coords[0]));
         if (coords.length > 1)
-            builder.v(Double.parseDouble(coords[1]));
+            builder.v(Float.parseFloat(coords[1]));
         if (coords.length > 2)
-            builder.w(Double.parseDouble(coords[2]));
+            builder.w(Float.parseFloat(coords[2]));
 
         return builder.build();
     }
@@ -114,9 +115,9 @@ public final class ObjFileParserImpl implements ObjFileParser {
         assert coords.length == 3 : "Vertex texture didn't follow the pattern: vn x y z\nFound: %s".formatted(line);
 
         return VertexNormal.builder()
-                .x(Double.parseDouble(coords[0]))
-                .y(Double.parseDouble(coords[1]))
-                .z(Double.parseDouble(coords[2]))
+                .x(Float.parseFloat(coords[0]))
+                .y(Float.parseFloat(coords[1]))
+                .z(Float.parseFloat(coords[2]))
                 .build();
     }
 

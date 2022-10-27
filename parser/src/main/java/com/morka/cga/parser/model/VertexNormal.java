@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 @Builder
 public class VertexNormal {
-    private final double x;
-    private final double y;
-    private final double z;
+    private final float x;
+    private final float y;
+    private final float z;
 }
