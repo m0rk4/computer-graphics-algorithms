@@ -7,14 +7,21 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class MainApplication extends Application {
 
-    private static final ExecutorService THREAD_POOL =
-            Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private static final ExecutorService THREAD_POOL = new ThreadPoolExecutor(
+            Runtime.getRuntime().availableProcessors(),
+            Runtime.getRuntime().availableProcessors(),
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(Runtime.getRuntime().availableProcessors()),
+            new ThreadPoolExecutor.DiscardOldestPolicy()
+    );
 
     private static final int THREAD_POOL_TERMINATION_TIME_IN_SECONDS = 60;
 
@@ -34,7 +41,6 @@ public class MainApplication extends Application {
         final var scene = new Scene(fxmlLoader.load(), 1280, 720);
         scene.setOnKeyPressed(controller::onKeyPressed);
         scene.setOnKeyReleased(controller::onKeyReleased);
-        scene.setOnMouseDragged(controller::onMouseDragged);
         stage.setTitle(APP_TITLE);
         stage.setResizable(false);
         stage.setScene(scene);

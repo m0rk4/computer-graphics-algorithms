@@ -35,4 +35,16 @@ public record Matrix4D(float[][] contents) {
         var ww = contents[3][0] * x + contents[3][1] * y + contents[3][2] * z + contents[3][3] * w;
         return Vertex.builder().x(xx).y(yy).z(zz).w(ww).build();
     }
+
+    public Vertex multiplyWithWNormalization(Vertex vertex) {
+        var x = vertex.getX();
+        var y = vertex.getY();
+        var z = vertex.getZ();
+        var w = vertex.getW();
+        var xx = contents[0][0] * x + contents[0][1] * y + contents[0][2] * z + contents[0][3] * w;
+        var yy = contents[1][0] * x + contents[1][1] * y + contents[1][2] * z + contents[1][3] * w;
+        var zz = contents[2][0] * x + contents[2][1] * y + contents[2][2] * z + contents[2][3] * w;
+        var ww = contents[3][0] * x + contents[3][1] * y + contents[3][2] * z + contents[3][3] * w;
+        return Vertex.builder().x(xx / ww).y(yy / ww).z(zz / ww).build();
+    }
 }

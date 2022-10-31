@@ -46,11 +46,8 @@ public class MainController {
 
     private final ObjFileParser parser = ObjFileParserBuilder.build();
 
-
     private static final int W = 1280;
-    private static final float W_2 = W / 2.f;
     private static final int H = 690;
-    private static final float H_2 = H / 2.f;
     private static final int ARGB_BLACK = 255 << 24;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
@@ -106,6 +103,11 @@ public class MainController {
             eyeBinding
     );
 
+    private static final Matrix4D PROJECTION = buildProjectionMatrix(W, H, 55.f, 0.1f, 100.f);
+    private static final Matrix4D VIEWPORT = buildViewportMatrix(W, H);
+
+    private boolean mouseDragging = false;
+
     private static final Map<KeyCode, BooleanProperty> KEYS = new HashMap<>() {{
         put(KeyCode.X, new SimpleBooleanProperty(false));
         put(KeyCode.Y, new SimpleBooleanProperty(false));
@@ -122,13 +124,6 @@ public class MainController {
         put(KeyCode.T, new SimpleBooleanProperty(false));
     }};
 
-    private static final Matrix4D VIEWPORT_X_PROJECTION;
-
-    static {
-        VIEWPORT_X_PROJECTION = getViewportMatrix()
-                .multiply(buildProjectionMatrix(W, H, 60.0f, 0.1f, 1000.f));
-    }
-
     public MainController(ExecutorService executorService) {
         this.executorService = executorService;
     }
@@ -136,17 +131,16 @@ public class MainController {
     @FXML
     protected void initialize() {
         pane.setCenter(GROUP);
-        for (int i = 0; i < BUFFER_SIZE; i++) {
+        for (int i = 0; i < BUFFER_SIZE; i++)
             emptyBuffers.add(new WritableImageView(W, H));
-        }
 
         final var rotationStep = (float) Math.PI / 32.0f;
-        final var translationStep = 10;
+        final var translationStep = 1;
         final var scaleStep = 0.05f;
 
         // scale
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
-        listenFor(KeyCode.M, () -> scaleProperty.set(scaleProperty.get() - scaleStep));
+        listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
 
         listenFor(KeyCode.E, KeyCode.UP, () -> xEyeProperty.set(xEyeProperty.get() + 5));
         listenFor(KeyCode.R, KeyCode.UP, () -> yEyeProperty.set(yEyeProperty.get() + 5));
@@ -180,16 +174,25 @@ public class MainController {
                 repaint();
         });
 
+        pane.setOnMousePressed(e -> {
+            mouseX = (float) e.getX();
+            mouseY = (float) e.getY();
+            mouseDragging = true;
+        });
+        pane.setOnMouseDragged(this::onMouseDragged);
+        pane.setOnMouseReleased(__ -> mouseDragging = false);
+
         final var animationTimer = new AnimationTimer() {
             @Override
             public void handle(long now) {
                 try {
+                    if (now - lastFrameTimestampInNanoseconds < 16666666)
+                        return;
+
                     if (fullBuffers.isEmpty())
                         return;
 
-                    // skip when less than ~~16ms ~~60 fps
-                    if (now - lastFrameTimestampInNanoseconds < 16666666)
-                        return;
+//                     skip when less than ~~16ms ~~60 fps
 
                     lastFrameTimestampInNanoseconds = now;
 
@@ -279,36 +282,44 @@ public class MainController {
     float degY = 0;
 
     public void onMouseDragged(MouseEvent e) {
-        final double posX = e.getX();
-        final double posY = e.getX();
-        float dx = (float) posX - mouseX;
-        float dy = (float) posY - mouseY;
-        degX += -dx / 5.f;
-        degY += -dy / 8.f;
-        mouseX = (float) posX;
-        mouseY = (float) posY;
-        xEyeProperty.set(degX);
-        yEyeProperty.set(degY);
+        if (mouseDragging) {
+            final double posX = e.getX();
+            final double posY = e.getX();
+            float dx = (float) posX - mouseX;
+            float dy = (float) posY - mouseY;
+            degX += -dx / 5.f;
+            degY += -dy / 8.f;
+            xEyeProperty.set(degX);
+            yEyeProperty.set(degY);
+        }
     }
 
+    long last;
+
     private void draw(ObjGroup group) {
+        if (System.nanoTime() - last < 16666666) return;
+        last = System.nanoTime();
+
         executorService.submit(() -> {
             try {
                 final var buffer = emptyBuffers.take();
                 buffer.setPixels(BACKGROUND_COLOR_ARRAY);
+                long st = System.nanoTime();
                 group.lines().parallelStream().forEach(line -> {
-                    final var matrix = VIEWPORT_X_PROJECTION
-                            .multiply(viewMatrix.get())
-                            .multiply(modelMatrix.get());
-                    final var from = matrix.multiply(line.from());
-                    final var to = matrix.multiply(line.to());
+                    final var mvp = PROJECTION.multiply(viewMatrix.get()).multiply(modelMatrix.get());
+                    final var fromNormalized = mvp.multiplyWithWNormalization(line.from());
+                    final var toNormalized = mvp.multiplyWithWNormalization(line.to());
+                    final var fromFinal = VIEWPORT.multiply(fromNormalized);
+                    final var toFinal = VIEWPORT.multiply(toNormalized);
                     drawLine(buffer,
-                            Math.round(from.getX() + W_2),
-                            Math.round(from.getY() + H_2),
-                            Math.round(to.getX() + W_2),
-                            Math.round(to.getY() + H_2),
-                            ARGB_BLACK);
+                            Math.round(fromFinal.getX()),
+                            Math.round(fromFinal.getY()),
+                            Math.round(toFinal.getX()),
+                            Math.round(toFinal.getY()),
+                            ARGB_BLACK
+                    );
                 });
+                System.out.println((System.nanoTime() - st) / 1000000.f);
                 fullBuffers.add(buffer);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
@@ -375,46 +386,43 @@ public class MainController {
     }
 
     private Matrix4D getViewMatrix() {
-        final var radius = 5.f;
-        final Vector3D vector3D = eyeBinding.get();
-        final var degX = vector3D.x();
-        final var degY = vector3D.y();
+        final var radius = 100.f;
+        final var vector3D = eyeBinding.get();
+        final var eye = new Vector3D((float) Math.cos(degX / 100.f) * radius, 0, (float) Math.sin(degX / 100.f) * radius);
+        final var target = new Vector3D(0, 0, 0);
+        final var up = new Vector3D(0, -1, 0);
 
-        final var pos = new Vector3D((float) Math.cos(degX / 100.f) * radius, 0, (float) Math.sin(degX / 100.f) * radius);
-        final var center = new Vector3D(0, 0, 0);
-        var up = new Vector3D(0, -1, 0);
-
-        final var viewray = center.subtract(pos).normalize();
-        final var right = viewray.cross(up).normalize();
-        up = right.cross(viewray);
+        final var zAxis = eye.subtract(target).normalize();
+        final var xAxis = up.cross(zAxis).normalize();
+        final var yAxis = xAxis.cross(zAxis);
 
         return new Matrix4D(new float[][]{
-                {right.x(), up.x(), viewray.x(), 0},
-                {right.y(), up.y(), viewray.y(), 0},
-                {right.z(), up.z(), viewray.z(), 0},
-                {-right.dot(pos), -up.dot(pos), viewray.dot(pos), 1}
+                {xAxis.x(), xAxis.y(), xAxis.z(), -xAxis.dot(eye)},
+                {yAxis.x(), yAxis.y(), yAxis.z(), -yAxis.dot(eye)},
+                {zAxis.x(), zAxis.y(), zAxis.z(), -zAxis.dot(eye)},
+                {0.f, 0.f, 0.f, 1.f}
         });
     }
 
     public static Matrix4D buildProjectionMatrix(float W, float H, float deg, float near, float far) {
         final var aspect = W / H;
         final var fov = (float) Math.toRadians(deg);
-        final var tanHalfFov = (float) Math.tan(fov / 2.f);
+        final var invTanHalfFov = (float) (1.f / Math.tan(fov / 2.f));
+        final var invRange = 1.f / (near - far);
         return new Matrix4D(new float[][]{
-                {1.f / (aspect * tanHalfFov), 0f, 0f, 0f},
-                {0f, 1.f / tanHalfFov, 0f, 0f},
-                {0f, 0f, (far + near) / (near - far), -1f},
-                {0f, 0f, (2f * far) * near / (near - far), 0f}
+                {invTanHalfFov / aspect, 0.f, 0.f, 0.f},
+                {0.f, invTanHalfFov, 0.f, 0.f},
+                {0.f, 0.f, far * invRange, far * near * invRange},
+                {0.f, 0.f, -1.f, 0.f}
         });
     }
 
-    private static Matrix4D getViewportMatrix() {
-        // TODO: replace
+    private static Matrix4D buildViewportMatrix(float width, float height) {
         return new Matrix4D(new float[][]{
-                {1.f, 0.f, 0.f, 0.f},
-                {0.f, 1.f, 0.f, 0.f},
+                {width / 2.f, 0.f, 0.f, width / 2.f},
+                {0.f, -height / 2.f, 0.f, height / 2.f},
                 {0.f, 0.f, 1.f, 0.f},
-                {0.f, 0.f, 0.f, 1.f},
+                {0.f, 0.f, 0.f, 1.f}
         });
     }
 
