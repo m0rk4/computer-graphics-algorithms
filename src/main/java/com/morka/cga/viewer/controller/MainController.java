@@ -110,10 +110,6 @@ public class MainController {
         put(KeyCode.M, new SimpleBooleanProperty(false));
         put(KeyCode.LEFT, new SimpleBooleanProperty(false));
         put(KeyCode.RIGHT, new SimpleBooleanProperty(false));
-
-        put(KeyCode.E, new SimpleBooleanProperty(false));
-        put(KeyCode.R, new SimpleBooleanProperty(false));
-        put(KeyCode.T, new SimpleBooleanProperty(false));
     }};
 
     public MainController(ExecutorService executorService) {
@@ -133,13 +129,6 @@ public class MainController {
         // scale
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
         listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
-
-        listenFor(KeyCode.E, KeyCode.UP, () -> xEyeProperty.set(xEyeProperty.get() + 5));
-        listenFor(KeyCode.R, KeyCode.UP, () -> yEyeProperty.set(yEyeProperty.get() + 5));
-        listenFor(KeyCode.T, KeyCode.UP, () -> zEyeProperty.set(zEyeProperty.get() + 5));
-        listenFor(KeyCode.E, KeyCode.DOWN, () -> xEyeProperty.set(xEyeProperty.get() - 5));
-        listenFor(KeyCode.R, KeyCode.DOWN, () -> yEyeProperty.set(yEyeProperty.get() - 5));
-        listenFor(KeyCode.T, KeyCode.DOWN, () -> zEyeProperty.set(zEyeProperty.get() - 5));
 
         // rotation
         listenFor(KeyCode.X, KeyCode.RIGHT, () -> xRotationProperty.set(xRotationProperty.get() + rotationStep));
@@ -178,7 +167,7 @@ public class MainController {
             double dy = e.getDeltaY();
             if (Double.compare(dy, 0.0) == 0)
                 return;
-            radiusProperty.set((float) (radiusProperty.get() - dy / 40));
+            radiusProperty.set((float) (radiusProperty.get() - dy / 20));
         });
     }
 
@@ -260,9 +249,7 @@ public class MainController {
 
     float lastPositionX;
     float lastPositionY;
-
     float sensibility = 0.01f;
-    float radius = 100.f;
     float lastTheta = 0;
     float lastPhi = 0;
 
@@ -300,8 +287,6 @@ public class MainController {
     }
 
 
-    long last;
-
     private void draw(ObjGroup group) {
         executorService.submit(() -> {
             try {
@@ -338,7 +323,6 @@ public class MainController {
     }
 
     private Matrix4D getViewMatrix() {
-        final var radius = 100.f;
         final var eye = eyeBinding.get();
         final var target = new Vector3D(0, 0, 0);
         final var up = new Vector3D(0, -1, 0);
