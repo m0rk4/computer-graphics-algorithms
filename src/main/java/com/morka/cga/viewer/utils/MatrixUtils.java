@@ -118,4 +118,29 @@ public final class MatrixUtils {
                 {0, 0, 0, 1}
         });
     }
+
+    public static Matrix4D getModelMatrix(Vector3D trans, Vector3D scale, Vector3D rotation) {
+        final var translationMatrix = getTranslationMatrix(trans);
+        final var scaleMatrix = getScaleMatrix(scale);
+        final var xRotationMatrix = getXRotationMatrix(rotation);
+        final var yRotationMatrix = getYRotationMatrix(rotation);
+        final var zRotationMatrix = getZRotationMatrix(rotation);
+        return translationMatrix.multiply(xRotationMatrix).multiply(yRotationMatrix).multiply(zRotationMatrix).multiply(scaleMatrix);
+    }
+
+    public static Matrix4D getViewMatrix(Vector3D eye) {
+        final var target = new Vector3D(0, 0, 0);
+        final var up = new Vector3D(0, -1, 0);
+
+        final var zAxis = eye.subtract(target).normalize();
+        final var xAxis = up.cross(zAxis).normalize();
+        final var yAxis = xAxis.cross(zAxis);
+
+        return new Matrix4D(new float[][]{
+                {xAxis.x(), xAxis.y(), xAxis.z(), -xAxis.dot(eye)},
+                {yAxis.x(), yAxis.y(), yAxis.z(), -yAxis.dot(eye)},
+                {zAxis.x(), zAxis.y(), zAxis.z(), -zAxis.dot(eye)},
+                {0.f, 0.f, 0.f, 1.f}
+        });
+    }
 }

@@ -81,17 +81,17 @@ public class MainController {
     );
 
     ObjectBinding<Matrix4D> modelMatrix = createObjectBinding(
-            this::getModelMatrix,
+            () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
             translationBinding, scaleBinding, rotationBinding
     );
 
     ObjectBinding<Vector3D> eyeBinding = createObjectBinding(
-            () -> this.extracted(xEyeProperty.get(), yEyeProperty.get(), radiusProperty.get()),
+            () -> getEyeVector(xEyeProperty.get(), yEyeProperty.get(), radiusProperty.get()),
             xEyeProperty, yEyeProperty, radiusProperty
     );
 
     ObjectBinding<Matrix4D> viewMatrix = createObjectBinding(
-            this::getViewMatrix,
+            () -> getViewMatrix(eyeBinding.get()),
             eyeBinding
     );
 
@@ -126,11 +126,9 @@ public class MainController {
         final var translationStep = 1;
         final var scaleStep = 0.05f;
 
-        // scale
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
         listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
 
-        // rotation
         listenFor(KeyCode.X, KeyCode.RIGHT, () -> xRotationProperty.set(xRotationProperty.get() + rotationStep));
         listenFor(KeyCode.X, KeyCode.LEFT, () -> xRotationProperty.set(xRotationProperty.get() - rotationStep));
         listenFor(KeyCode.Y, KeyCode.RIGHT, () -> yRotationProperty.set(yRotationProperty.get() + rotationStep));
@@ -138,7 +136,6 @@ public class MainController {
         listenFor(KeyCode.Z, KeyCode.RIGHT, () -> zRotationProperty.set(zRotationProperty.get() + rotationStep));
         listenFor(KeyCode.Z, KeyCode.LEFT, () -> zRotationProperty.set(zRotationProperty.get() - rotationStep));
 
-        // translate
         listenFor(KeyCode.X, KeyCode.UP, () -> xTranslationProperty.set(xTranslationProperty.get() + translationStep));
         listenFor(KeyCode.X, KeyCode.DOWN, () -> xTranslationProperty.set(xTranslationProperty.get() - translationStep));
         listenFor(KeyCode.Y, KeyCode.UP, () -> yTranslationProperty.set(yTranslationProperty.get() + translationStep));
@@ -262,7 +259,7 @@ public class MainController {
         yEyeProperty.set((float) e.getY());
     }
 
-    private Vector3D extracted(float posX, float posY, float radius) {
+    private Vector3D getEyeVector(float posX, float posY, float radius) {
         final var dx = posX - lastPositionX;
         final var dy = posY - lastPositionY;
 
@@ -309,33 +306,6 @@ public class MainController {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-        });
-    }
-
-    private Matrix4D getModelMatrix() {
-        final var rotation = rotationBinding.get();
-        final var translationMatrix = getTranslationMatrix(translationBinding.get());
-        final var scaleMatrix = getScaleMatrix(scaleBinding.get());
-        final var xRotationMatrix = getXRotationMatrix(rotation);
-        final var yRotationMatrix = getYRotationMatrix(rotation);
-        final var zRotationMatrix = getZRotationMatrix(rotation);
-        return translationMatrix.multiply(xRotationMatrix).multiply(yRotationMatrix).multiply(zRotationMatrix).multiply(scaleMatrix);
-    }
-
-    private Matrix4D getViewMatrix() {
-        final var eye = eyeBinding.get();
-        final var target = new Vector3D(0, 0, 0);
-        final var up = new Vector3D(0, -1, 0);
-
-        final var zAxis = eye.subtract(target).normalize();
-        final var xAxis = up.cross(zAxis).normalize();
-        final var yAxis = xAxis.cross(zAxis);
-
-        return new Matrix4D(new float[][]{
-                {xAxis.x(), xAxis.y(), xAxis.z(), -xAxis.dot(eye)},
-                {yAxis.x(), yAxis.y(), yAxis.z(), -yAxis.dot(eye)},
-                {zAxis.x(), zAxis.y(), zAxis.z(), -zAxis.dot(eye)},
-                {0.f, 0.f, 0.f, 1.f}
         });
     }
 
