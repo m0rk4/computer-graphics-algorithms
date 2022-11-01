@@ -63,6 +63,8 @@ public class MainController {
     FloatProperty yEyeProperty = new SimpleFloatProperty(0);
     FloatProperty zEyeProperty = new SimpleFloatProperty(0);
 
+    FloatProperty radiusProperty = new SimpleFloatProperty(100);
+
     ObjectBinding<Vector3D> translationBinding = createObjectBinding(
             () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
             xTranslationProperty, yTranslationProperty, zTranslationProperty
@@ -84,8 +86,8 @@ public class MainController {
     );
 
     ObjectBinding<Vector3D> eyeBinding = createObjectBinding(
-            () -> new Vector3D(xEyeProperty.get(), yEyeProperty.get(), zEyeProperty.get()),
-            xEyeProperty, yEyeProperty, zEyeProperty
+            () -> this.extracted(xEyeProperty.get(), yEyeProperty.get(), radiusProperty.get()),
+            xEyeProperty, yEyeProperty, radiusProperty
     );
 
     ObjectBinding<Matrix4D> viewMatrix = createObjectBinding(
@@ -93,7 +95,7 @@ public class MainController {
             eyeBinding
     );
 
-    private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 55.f, 0.1f, 100.f);
+    private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 60f, 0.1f, 100.f);
     private static final Matrix4D VIEWPORT_MATRIX = buildViewportMatrix(W, H);
 
     private boolean mouseDragging = false;
@@ -171,6 +173,13 @@ public class MainController {
         });
         pane.setOnMouseDragged(this::onMouseDragged);
         pane.setOnMouseReleased(__ -> mouseDragging = false);
+
+        pane.setOnScroll(e -> {
+            double dy = e.getDeltaY();
+            if (Double.compare(dy, 0.0) == 0)
+                return;
+            radiusProperty.set((float) (radiusProperty.get() - dy / 40));
+        });
     }
 
     public void onUpdate() throws InterruptedException {
@@ -262,8 +271,11 @@ public class MainController {
         if (!mouseDragging)
             return;
 
-        final var posX = (float) e.getX();
-        final var posY = (float) e.getY();
+        xEyeProperty.set((float) e.getX());
+        yEyeProperty.set((float) e.getY());
+    }
+
+    private Vector3D extracted(float posX, float posY, float radius) {
         final var dx = posX - lastPositionX;
         final var dy = posY - lastPositionY;
 
@@ -284,13 +296,12 @@ public class MainController {
         final var eyeX = (float) (radius * Math.cos(theta) * Math.cos(phi));
         float eyeY = (float) (radius * Math.sin(theta));
         float eyeZ = (float) (radius * Math.cos(theta) * Math.sin(phi));
-        xEyeProperty.set(eyeX);
-        yEyeProperty.set(eyeY);
-        zEyeProperty.set(eyeZ);
+        return new Vector3D(eyeX, eyeY, eyeZ);
     }
 
 
     long last;
+
     private void draw(ObjGroup group) {
         executorService.submit(() -> {
             try {
