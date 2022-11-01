@@ -1,6 +1,7 @@
 package com.morka.cga.viewer;
 
 import com.morka.cga.viewer.controller.MainController;
+import javafx.animation.AnimationTimer;
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
@@ -22,7 +23,6 @@ public class MainApplication extends Application {
             new ArrayBlockingQueue<>(Runtime.getRuntime().availableProcessors()),
             new ThreadPoolExecutor.DiscardOldestPolicy()
     );
-
     private static final int THREAD_POOL_TERMINATION_TIME_IN_SECONDS = 60;
 
     private static final String FXML_VIEW_NAME = "main-view.fxml";
@@ -37,6 +37,7 @@ public class MainApplication extends Application {
     public void start(Stage stage) throws IOException {
         final var fxmlLoader = new FXMLLoader(MainApplication.class.getResource(FXML_VIEW_NAME));
         final var controller = new MainController(THREAD_POOL);
+        final var timer = getTimer(controller);
         fxmlLoader.setControllerFactory(__ -> controller);
         final var scene = new Scene(fxmlLoader.load(), 1280, 720);
         scene.setOnKeyPressed(controller::onKeyPressed);
@@ -45,6 +46,7 @@ public class MainApplication extends Application {
         stage.setResizable(false);
         stage.setScene(scene);
         stage.show();
+        timer.start();
     }
 
     @Override
@@ -60,5 +62,18 @@ public class MainApplication extends Application {
         } catch (InterruptedException e) {
             THREAD_POOL.shutdownNow();
         }
+    }
+
+    private static AnimationTimer getTimer(MainController controller) {
+        return new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                try {
+                    controller.onUpdate();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
     }
 }

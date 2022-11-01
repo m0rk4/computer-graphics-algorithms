@@ -6,15 +6,8 @@ import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
-import javafx.animation.AnimationTimer;
 import javafx.beans.binding.ObjectBinding;
-import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.FloatProperty;
-import javafx.beans.property.IntegerProperty;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleFloatProperty;
-import javafx.beans.property.SimpleIntegerProperty;
-import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.*;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
@@ -31,20 +24,20 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 
+import static com.morka.cga.viewer.utils.MatrixUtils.*;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
 
 public class MainController {
 
     private final ExecutorService executorService;
+    private final ObjFileParser parser = ObjFileParserBuilder.build();
 
     @FXML
     private BorderPane pane;
-
     private static final Group GROUP = new Group();
     private static final ObservableList<Node> NODES = GROUP.getChildren();
 
-    private final ObjFileParser parser = ObjFileParserBuilder.build();
 
     private static final int W = 1280;
     private static final int H = 690;
@@ -54,11 +47,8 @@ public class MainController {
     private final BlockingQueue<WritableImageView> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
     private final BlockingQueue<WritableImageView> emptyBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
     private WritableImageView currentBuffer;
-    private long lastFrameTimestampInNanoseconds;
-
 
     private static final SimpleObjectProperty<ObjGroup> OBJECT_BINDING = new SimpleObjectProperty<>();
-
     IntegerProperty xTranslationProperty = new SimpleIntegerProperty(0);
     IntegerProperty yTranslationProperty = new SimpleIntegerProperty(0);
     IntegerProperty zTranslationProperty = new SimpleIntegerProperty(0);
@@ -103,8 +93,8 @@ public class MainController {
             eyeBinding
     );
 
-    private static final Matrix4D PROJECTION = buildProjectionMatrix(W, H, 55.f, 0.1f, 100.f);
-    private static final Matrix4D VIEWPORT = buildViewportMatrix(W, H);
+    private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 55.f, 0.1f, 100.f);
+    private static final Matrix4D VIEWPORT_MATRIX = buildViewportMatrix(W, H);
 
     private boolean mouseDragging = false;
 
@@ -175,45 +165,30 @@ public class MainController {
         });
 
         pane.setOnMousePressed(e -> {
-            mouseX = (float) e.getX();
-            mouseY = (float) e.getY();
+            lastPositionX = (float) e.getX();
+            lastPositionY = (float) e.getY();
             mouseDragging = true;
         });
         pane.setOnMouseDragged(this::onMouseDragged);
         pane.setOnMouseReleased(__ -> mouseDragging = false);
+    }
 
-        final var animationTimer = new AnimationTimer() {
-            @Override
-            public void handle(long now) {
-                try {
-                    if (now - lastFrameTimestampInNanoseconds < 16666666)
-                        return;
+    public void onUpdate() throws InterruptedException {
+        if (fullBuffers.isEmpty())
+            return;
 
-                    if (fullBuffers.isEmpty())
-                        return;
+        var buffer = fullBuffers.take();
 
-//                     skip when less than ~~16ms ~~60 fps
+        addUiNode(buffer);
 
-                    lastFrameTimestampInNanoseconds = now;
+        if (currentBuffer != null) {
+            removeUiNode(currentBuffer);
+            emptyBuffers.add(currentBuffer);
+        }
 
-                    var buffer = fullBuffers.take();
+        buffer.updateBuffer();
 
-                    addUiNode(buffer);
-
-                    if (currentBuffer != null) {
-                        removeUiNode(currentBuffer);
-                        emptyBuffers.add(currentBuffer);
-                    }
-
-                    buffer.updateBuffer();
-
-                    currentBuffer = buffer;
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        };
-        animationTimer.start();
+        currentBuffer = buffer;
     }
 
     private void resetStates() {
@@ -264,62 +239,76 @@ public class MainController {
 
     public void onKeyPressed(KeyEvent e) {
         final var code = e.getCode();
-        if (KEYS.containsKey(code)) {
+        if (KEYS.containsKey(code))
             KEYS.get(code).set(true);
-        }
     }
 
     public void onKeyReleased(KeyEvent e) {
         final var code = e.getCode();
-        if (KEYS.containsKey(code)) {
+        if (KEYS.containsKey(code))
             KEYS.get(code).set(false);
-        }
     }
 
-    float mouseX;
-    float mouseY;
-    float degX = 0;
-    float degY = 0;
+    float lastPositionX;
+    float lastPositionY;
+
+    float sensibility = 0.01f;
+    float radius = 100.f;
+    float lastTheta = 0;
+    float lastPhi = 0;
+
 
     public void onMouseDragged(MouseEvent e) {
-        if (mouseDragging) {
-            final double posX = e.getX();
-            final double posY = e.getX();
-            float dx = (float) posX - mouseX;
-            float dy = (float) posY - mouseY;
-            degX += -dx / 5.f;
-            degY += -dy / 8.f;
-            xEyeProperty.set(degX);
-            yEyeProperty.set(degY);
-        }
+        if (!mouseDragging)
+            return;
+
+        final var posX = (float) e.getX();
+        final var posY = (float) e.getY();
+        final var dx = posX - lastPositionX;
+        final var dy = posY - lastPositionY;
+
+        lastPositionX = posX;
+        lastPositionY = posY;
+
+        var theta = lastTheta + sensibility * dy;
+        if (theta < Math.PI / -2)
+            theta = (float) Math.PI / -2;
+        else if (theta > Math.PI / 2)
+            theta = (float) Math.PI / 2;
+
+        final var phi = (lastPhi + sensibility * dx * -1) % (Math.PI * 2);
+
+        lastTheta = theta;
+        lastPhi = (float) phi;
+
+        final var eyeX = (float) (radius * Math.cos(theta) * Math.cos(phi));
+        float eyeY = (float) (radius * Math.sin(theta));
+        float eyeZ = (float) (radius * Math.cos(theta) * Math.sin(phi));
+        xEyeProperty.set(eyeX);
+        yEyeProperty.set(eyeY);
+        zEyeProperty.set(eyeZ);
     }
 
+
     long last;
-
     private void draw(ObjGroup group) {
-        if (System.nanoTime() - last < 16666666) return;
-        last = System.nanoTime();
-
         executorService.submit(() -> {
             try {
                 final var buffer = emptyBuffers.take();
                 buffer.setPixels(BACKGROUND_COLOR_ARRAY);
-                long st = System.nanoTime();
                 group.lines().parallelStream().forEach(line -> {
-                    final var mvp = PROJECTION.multiply(viewMatrix.get()).multiply(modelMatrix.get());
-                    final var fromNormalized = mvp.multiplyWithWNormalization(line.from());
-                    final var toNormalized = mvp.multiplyWithWNormalization(line.to());
-                    final var fromFinal = VIEWPORT.multiply(fromNormalized);
-                    final var toFinal = VIEWPORT.multiply(toNormalized);
+                    final var mvp = PROJECTION_MATRIX.multiply(viewMatrix.get()).multiply(modelMatrix.get());
+                    final var fromTransformedNormalized = mvp.multiplyWithWNormalization(line.from());
+                    final var toTransformedNormalized = mvp.multiplyWithWNormalization(line.to());
+                    final var from = VIEWPORT_MATRIX.multiply(fromTransformedNormalized);
+                    final var to = VIEWPORT_MATRIX.multiply(toTransformedNormalized);
                     drawLine(buffer,
-                            Math.round(fromFinal.getX()),
-                            Math.round(fromFinal.getY()),
-                            Math.round(toFinal.getX()),
-                            Math.round(toFinal.getY()),
-                            ARGB_BLACK
-                    );
+                            Math.round(from.getX()),
+                            Math.round(from.getY()),
+                            Math.round(to.getX()),
+                            Math.round(to.getY()),
+                            ARGB_BLACK);
                 });
-                System.out.println((System.nanoTime() - st) / 1000000.f);
                 fullBuffers.add(buffer);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
@@ -337,58 +326,9 @@ public class MainController {
         return translationMatrix.multiply(xRotationMatrix).multiply(yRotationMatrix).multiply(zRotationMatrix).multiply(scaleMatrix);
     }
 
-    public Matrix4D getXRotationMatrix(Vector3D vector) {
-        float[][] matrix = new float[][]{
-                {1f, 0, 0, 0},
-                {0, (float) Math.cos(vector.x()), (float) (-1 * Math.sin(vector.x())), 0},
-                {0, (float) Math.sin(vector.x()), (float) Math.cos(vector.x()), 0},
-                {0, 0, 0, 1f}
-        };
-        return new Matrix4D(matrix);
-    }
-
-    public Matrix4D getYRotationMatrix(Vector3D vector) {
-        float[][] matrix = new float[][]{
-                {(float) Math.cos(vector.y()), 0, (float) Math.sin(vector.y()), 0},
-                {0, 1f, 0, 0},
-                {(float) (-1 * Math.sin(vector.y())), 0, (float) Math.cos(vector.y()), 0},
-                {0, 0, 0, 1f}
-        };
-        return new Matrix4D(matrix);
-    }
-
-    public Matrix4D getZRotationMatrix(Vector3D vector) {
-        float[][] matrix = new float[][]{
-                {(float) Math.cos(vector.z()), (float) (-1 * Math.sin(vector.z())), 0, 0},
-                {(float) Math.sin(vector.z()), (float) Math.cos(vector.z()), 0, 0},
-                {0, 0, 1f, 0},
-                {0, 0, 0, 1f}
-        };
-        return new Matrix4D(matrix);
-    }
-
-    private Matrix4D getTranslationMatrix(Vector3D translation) {
-        return new Matrix4D(new float[][]{
-                {1, 0, 0, translation.x()},
-                {0, 1, 0, translation.y()},
-                {0, 0, 1, translation.z()},
-                {0, 0, 0, 1}
-        });
-    }
-
-    private Matrix4D getScaleMatrix(Vector3D scale) {
-        return new Matrix4D(new float[][]{
-                {scale.x(), 0, 0, 0},
-                {0, scale.y(), 0, 0},
-                {0, 0, scale.z(), 0},
-                {0, 0, 0, 1}
-        });
-    }
-
     private Matrix4D getViewMatrix() {
         final var radius = 100.f;
-        final var vector3D = eyeBinding.get();
-        final var eye = new Vector3D((float) Math.cos(degX / 100.f) * radius, 0, (float) Math.sin(degX / 100.f) * radius);
+        final var eye = eyeBinding.get();
         final var target = new Vector3D(0, 0, 0);
         final var up = new Vector3D(0, -1, 0);
 
@@ -404,29 +344,6 @@ public class MainController {
         });
     }
 
-    public static Matrix4D buildProjectionMatrix(float W, float H, float deg, float near, float far) {
-        final var aspect = W / H;
-        final var fov = (float) Math.toRadians(deg);
-        final var invTanHalfFov = (float) (1.f / Math.tan(fov / 2.f));
-        final var invRange = 1.f / (near - far);
-        return new Matrix4D(new float[][]{
-                {invTanHalfFov / aspect, 0.f, 0.f, 0.f},
-                {0.f, invTanHalfFov, 0.f, 0.f},
-                {0.f, 0.f, far * invRange, far * near * invRange},
-                {0.f, 0.f, -1.f, 0.f}
-        });
-    }
-
-    private static Matrix4D buildViewportMatrix(float width, float height) {
-        return new Matrix4D(new float[][]{
-                {width / 2.f, 0.f, 0.f, width / 2.f},
-                {0.f, -height / 2.f, 0.f, height / 2.f},
-                {0.f, 0.f, 1.f, 0.f},
-                {0.f, 0.f, 0.f, 1.f}
-        });
-    }
-
-
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
         var dx = Math.abs(x2 - x1);
         var sx = x1 < x2 ? 1 : -1;
@@ -435,9 +352,8 @@ public class MainController {
         var err = dx + dy;
         while (true) {
             drawPixel(buffer, x1, y1, color);
-            if (x1 == x2 && y1 == y2) {
+            if (x1 == x2 && y1 == y2)
                 return;
-            }
             var err2 = err * 2;
             if (err2 > dy) {
                 err += dy;
