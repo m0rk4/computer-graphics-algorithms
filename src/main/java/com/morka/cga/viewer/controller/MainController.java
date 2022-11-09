@@ -24,7 +24,6 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 
 import java.util.Arrays;
@@ -318,7 +317,7 @@ public class MainController {
                     final var secondVertex = VIEWPORT_MATRIX.multiply(second);
                     final var thirdVertex = VIEWPORT_MATRIX.multiply(third);
                     int colorARGB = 255 << 24 | ThreadLocalRandom.current().nextInt(0, 255) << 16 | ThreadLocalRandom.current().nextInt(0, 255) << 8 | ThreadLocalRandom.current().nextInt(0, 255);
-                    drawTriangle(
+                    drawTriangleBoxing(
                             buffer,
                             new Vector2D(
                                     firstVertex.getX(),
@@ -338,9 +337,56 @@ public class MainController {
         });
     }
 
-    private void drawTriangle(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
-        var degenerateTriangle = Float.compare(t0.y(), t1.y()) == 0 &&
-                Float.compare(t0.y(), t2.y()) == 0;
+    private void drawTriangleBoxing(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
+        var bboxminX = W - 1f;
+        var bboxminY = H - 1f;
+        var bboxmaxX = 0f;
+        var bboxmaxY = 0f;
+        var clampX = W - 1f;
+        var clampY = H - 1f;
+
+        // 0
+        bboxminX = Math.max(0, Math.min(bboxminX, t0.x()));
+        bboxminY = Math.max(0, Math.min(bboxminY, t0.y()));
+
+        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t0.x()));
+        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t0.y()));
+
+        // 1
+        bboxminX = Math.max(0, Math.min(bboxminX, t1.x()));
+        bboxminY = Math.max(0, Math.min(bboxminY, t1.y()));
+
+        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t1.x()));
+        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t1.y()));
+
+        // 2
+        bboxminX = Math.max(0, Math.min(bboxminX, t2.x()));
+        bboxminY = Math.max(0, Math.min(bboxminY, t2.y()));
+
+        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t2.x()));
+        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t2.y()));
+
+        for (var x = bboxminX; x <= bboxmaxX; x++) {
+            for (var y = bboxminY; y <= bboxmaxY; y++) {
+                var barycentric = barycentric(t0, t1, t2, x, y);
+                if (barycentric.x() < 0 || barycentric.y() < 0 || barycentric.z() < 0)
+                    continue;
+                drawPixel(buffer, Math.round(x), Math.round(y), color);
+            }
+        }
+    }
+
+    private Vector3D barycentric(Vector2D t0, Vector2D t1, Vector2D t2, float x, float y) {
+        var first = new Vector3D(t2.x() - t0.x(), t1.x() - t0.x(), t0.x() - x);
+        var second = new Vector3D(t2.y() - t0.y(), t1.y() - t0.y(), t0.y() - y);
+        var u = first.cross(second);
+        if (Math.abs(u.z()) < 1f)
+            return new Vector3D(-1, 1, 1);
+        return new Vector3D(1.f - (u.x() + u.y()) / u.z(), u.y() / u.z(), u.x() / u.z());
+    }
+
+    private void drawTriangleLineScanning(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
+        var degenerateTriangle = Float.compare(t0.y(), t1.y()) == 0 && Float.compare(t0.y(), t2.y()) == 0;
         if (degenerateTriangle)
             return;
 
