@@ -28,6 +28,29 @@ public class MainApplication extends Application {
     private static final String FXML_VIEW_NAME = "main-view.fxml";
     private static final String APP_TITLE = ".OBJ Viewer";
 
+    private static void destroyThreadPool() {
+        THREAD_POOL.shutdown();
+        try {
+            if (!THREAD_POOL.awaitTermination(THREAD_POOL_TERMINATION_TIME_IN_SECONDS, TimeUnit.SECONDS))
+                THREAD_POOL.shutdownNow();
+        } catch (InterruptedException e) {
+            THREAD_POOL.shutdownNow();
+        }
+    }
+
+    private static AnimationTimer getTimer(MainController controller) {
+        return new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                try {
+                    controller.onUpdate();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+    }
+
     @Override
     public void init() {
         Runtime.getRuntime().addShutdownHook(new Thread(MainApplication::destroyThreadPool));
@@ -52,28 +75,5 @@ public class MainApplication extends Application {
     @Override
     public void stop() {
         destroyThreadPool();
-    }
-
-    private static void destroyThreadPool() {
-        THREAD_POOL.shutdown();
-        try {
-            if (!THREAD_POOL.awaitTermination(THREAD_POOL_TERMINATION_TIME_IN_SECONDS, TimeUnit.SECONDS))
-                THREAD_POOL.shutdownNow();
-        } catch (InterruptedException e) {
-            THREAD_POOL.shutdownNow();
-        }
-    }
-
-    private static AnimationTimer getTimer(MainController controller) {
-        return new AnimationTimer() {
-            @Override
-            public void handle(long now) {
-                try {
-                    controller.onUpdate();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        };
     }
 }

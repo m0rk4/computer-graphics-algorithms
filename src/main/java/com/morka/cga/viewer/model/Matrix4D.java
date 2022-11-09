@@ -1,7 +1,5 @@
 package com.morka.cga.viewer.model;
 
-import com.morka.cga.parser.model.Vertex;
-
 public record Matrix4D(float[][] contents) {
     private static final int SIDE_LENGTH = 4;
 
@@ -24,27 +22,15 @@ public record Matrix4D(float[][] contents) {
         return target;
     }
 
-    public Vertex multiply(Vertex vertex) {
-        var x = vertex.getX();
-        var y = vertex.getY();
-        var z = vertex.getZ();
-        var w = vertex.getW();
+    public Vector4D multiply(Vector4D vertex) {
+        var x = vertex.x();
+        var y = vertex.y();
+        var z = vertex.z();
+        var w = vertex.w();
         var xx = contents[0][0] * x + contents[0][1] * y + contents[0][2] * z + contents[0][3] * w;
         var yy = contents[1][0] * x + contents[1][1] * y + contents[1][2] * z + contents[1][3] * w;
         var zz = contents[2][0] * x + contents[2][1] * y + contents[2][2] * z + contents[2][3] * w;
         var ww = contents[3][0] * x + contents[3][1] * y + contents[3][2] * z + contents[3][3] * w;
-        return Vertex.builder().x(xx).y(yy).z(zz).w(ww).build();
-    }
-
-    public Vertex multiplyWithWNormalization(Vertex vertex) {
-        var x = vertex.getX();
-        var y = vertex.getY();
-        var z = vertex.getZ();
-        var w = vertex.getW();
-        var xx = contents[0][0] * x + contents[0][1] * y + contents[0][2] * z + contents[0][3] * w;
-        var yy = contents[1][0] * x + contents[1][1] * y + contents[1][2] * z + contents[1][3] * w;
-        var zz = contents[2][0] * x + contents[2][1] * y + contents[2][2] * z + contents[2][3] * w;
-        var ww = contents[3][0] * x + contents[3][1] * y + contents[3][2] * z + contents[3][3] * w;
-        return Vertex.builder().x(xx / ww).y(yy / ww).z(zz / ww).build();
+        return new Vector4D(xx, yy, zz, ww);
     }
 }

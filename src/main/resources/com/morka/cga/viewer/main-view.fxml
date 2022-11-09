@@ -4,22 +4,17 @@
 <?import javafx.scene.control.MenuBar?>
 <?import javafx.scene.control.MenuItem?>
 <?import javafx.scene.layout.BorderPane?>
-
-<BorderPane fx:id="pane" maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="720.0" prefWidth="1280.0" xmlns="http://javafx.com/javafx/18" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.morka.cga.viewer.controller.MainController">
+<BorderPane xmlns:fx="http://javafx.com/fxml/1" fx:id="pane" maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity"
+            minWidth="-Infinity" prefHeight="720.0" prefWidth="1280.0"
+            xmlns="http://javafx.com/javafx/17" fx:controller="com.morka.cga.viewer.controller.MainController">
     <top>
         <MenuBar BorderPane.alignment="CENTER">
-            <menus>
-                <Menu mnemonicParsing="false" text="File">
-                    <items>
-                        <MenuItem mnemonicParsing="false" onAction="#onFileOpen" text="Open" />
-                    </items>
-                </Menu>
-                <Menu mnemonicParsing="false" text="Help">
-                    <items>
-                        <MenuItem mnemonicParsing="false" text="About" />
-                    </items>
-                </Menu>
-            </menus>
+            <Menu mnemonicParsing="false" text="File">
+                <MenuItem mnemonicParsing="false" onAction="#onFileOpen" text="Open"/>
+            </Menu>
+            <Menu mnemonicParsing="false" text="Help">
+                <MenuItem mnemonicParsing="false" text="About"/>
+            </Menu>
         </MenuBar>
     </top>
 </BorderPane>

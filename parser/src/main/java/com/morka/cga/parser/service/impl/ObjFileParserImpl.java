@@ -17,13 +17,10 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public final class ObjFileParserImpl implements ObjFileParser {
-
-    private static final Logger LOGGER = Logger.getLogger(ObjFileParserImpl.class.getName());
 
     private static final String SPACES_REGEX = "\\s+";
 
@@ -45,6 +42,57 @@ public final class ObjFileParserImpl implements ObjFileParser {
 
     private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN =
             Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
+
+    private static Vertex parseVertex(String line) {
+        final var coords = line
+                .substring(VERTEX_PREFIX.length())
+                .trim()
+                .split(SPACES_REGEX);
+
+        assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
+
+        final var builder = Vertex.builder()
+                .x(Float.parseFloat(coords[0]))
+                .y(Float.parseFloat(coords[1]))
+                .z(Float.parseFloat(coords[2]));
+        if (coords.length > 3)
+            builder.w(Float.parseFloat(coords[3]));
+
+        return builder.build();
+    }
+
+    private static Face parseFaceFromVertexesList(Map<Integer, Vertex> vertexMap, String[] faceElements) {
+        final var elements = new FaceElement[faceElements.length];
+        for (var i = 0; i < faceElements.length; i++) {
+            final var relativeIndex = Integer.parseInt(faceElements[i]);
+            final var index = getFaceElementIndex(vertexMap.size(), relativeIndex);
+            final var vertex = vertexMap.get(index);
+            final var faceElement = FaceElement.builder().vertex(vertex).build();
+            elements[i] = faceElement;
+        }
+        return new Face(elements);
+    }
+
+    private static Face parseFaceFromVertexAndTexturesList(Map<Integer, Vertex> vertexMap,
+                                                           Map<Integer, VertexTexture> vertexTextureMap,
+                                                           String[] faceElementsStringified) {
+        final var faceElements = new FaceElement[faceElementsStringified.length];
+        for (var i = 0; i < faceElementsStringified.length; i++) {
+            final var items = faceElementsStringified[i].split("/");
+            final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
+            final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
+            final var element = FaceElement.builder()
+                    .vertex(vertexMap.get(vertexNumber))
+                    .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
+                    .build();
+            faceElements[i] = element;
+        }
+        return new Face(faceElements);
+    }
+
+    private static int getFaceElementIndex(int size, int index) {
+        return index < 0 ? size + index + 1 : index;
+    }
 
     @Override
     public ObjGroup parse(File file) throws ObjParserException {
@@ -88,24 +136,6 @@ public final class ObjFileParserImpl implements ObjFileParser {
             result.add(new Line(from, to));
         }
         return result.stream();
-    }
-
-    private static Vertex parseVertex(String line) {
-        final var coords = line
-                .substring(VERTEX_PREFIX.length())
-                .trim()
-                .split(SPACES_REGEX);
-
-        assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
-
-        final var builder = Vertex.builder()
-                .x(Float.parseFloat(coords[0]))
-                .y(Float.parseFloat(coords[1]))
-                .z(Float.parseFloat(coords[2]));
-        if (coords.length > 3)
-            builder.w(Float.parseFloat(coords[3]));
-
-        return builder.build();
     }
 
     private VertexTexture parseVertexTexture(String line) {
@@ -166,35 +196,6 @@ public final class ObjFileParserImpl implements ObjFileParser {
         return new Face(new FaceElement[0]);
     }
 
-    private static Face parseFaceFromVertexesList(Map<Integer, Vertex> vertexMap, String[] faceElements) {
-        final var elements = new FaceElement[faceElements.length];
-        for (var i = 0; i < faceElements.length; i++) {
-            final var relativeIndex = Integer.parseInt(faceElements[i]);
-            final var index = getFaceElementIndex(vertexMap.size(), relativeIndex);
-            final var vertex = vertexMap.get(index);
-            final var faceElement = FaceElement.builder().vertex(vertex).build();
-            elements[i] = faceElement;
-        }
-        return new Face(elements);
-    }
-
-    private static Face parseFaceFromVertexAndTexturesList(Map<Integer, Vertex> vertexMap,
-                                                           Map<Integer, VertexTexture> vertexTextureMap,
-                                                           String[] faceElementsStringified) {
-        final var faceElements = new FaceElement[faceElementsStringified.length];
-        for (var i = 0; i < faceElementsStringified.length; i++) {
-            final var items = faceElementsStringified[i].split("/");
-            final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
-            final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
-            final var element = FaceElement.builder()
-                    .vertex(vertexMap.get(vertexNumber))
-                    .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
-                    .build();
-            faceElements[i] = element;
-        }
-        return new Face(faceElements);
-    }
-
     private Face parseFaceFromVertexAndNormalsList(Map<Integer, Vertex> vertexMap,
                                                    Map<Integer, VertexNormal> vertexNormalMap,
                                                    String[] faceElementsStringified) {
@@ -230,9 +231,5 @@ public final class ObjFileParserImpl implements ObjFileParser {
             faceElements[i] = element;
         }
         return new Face(faceElements);
-    }
-
-    private static int getFaceElementIndex(int size, int index) {
-        return index < 0 ? size + index + 1 : index;
     }
 }

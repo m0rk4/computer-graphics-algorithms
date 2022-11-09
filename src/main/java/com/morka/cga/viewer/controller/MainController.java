@@ -2,12 +2,13 @@ package com.morka.cga.viewer.controller;
 
 import com.morka.cga.parser.exception.ObjParserException;
 import com.morka.cga.parser.model.ObjGroup;
+import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.service.ObjFileParser;
 import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
-import com.morka.cga.viewer.model.Vector2D;
 import com.morka.cga.viewer.model.Vector3D;
+import com.morka.cga.viewer.model.Vector4D;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.FloatProperty;
@@ -32,7 +33,6 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
 
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
@@ -43,77 +43,16 @@ import static javafx.beans.binding.Bindings.createObjectBinding;
 
 public class MainController {
 
-    private final ExecutorService executorService;
-    private final ObjFileParser parser = ObjFileParserBuilder.build();
-
-    @FXML
-    private BorderPane pane;
     private static final Group GROUP = new Group();
     private static final ObservableList<Node> NODES = GROUP.getChildren();
-
-
     private static final int W = 1280;
     private static final int H = 690;
     private static final int ARGB_BLACK = 255 << 24;
-    private static final int ARGB_WHITE = 0;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
-    private final BlockingQueue<WritableImageView> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
-    private final BlockingQueue<WritableImageView> emptyBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
-    private WritableImageView currentBuffer;
-
     private static final SimpleObjectProperty<ObjGroup> OBJECT_BINDING = new SimpleObjectProperty<>();
-    IntegerProperty xTranslationProperty = new SimpleIntegerProperty(0);
-    IntegerProperty yTranslationProperty = new SimpleIntegerProperty(0);
-    IntegerProperty zTranslationProperty = new SimpleIntegerProperty(0);
-
-    FloatProperty xRotationProperty = new SimpleFloatProperty(0);
-    FloatProperty yRotationProperty = new SimpleFloatProperty(0);
-    FloatProperty zRotationProperty = new SimpleFloatProperty(0);
-
-    FloatProperty scaleProperty = new SimpleFloatProperty(1);
-
-    FloatProperty xEyeProperty = new SimpleFloatProperty(0);
-    FloatProperty yEyeProperty = new SimpleFloatProperty(0);
-    FloatProperty zEyeProperty = new SimpleFloatProperty(0);
-
-    FloatProperty radiusProperty = new SimpleFloatProperty(100);
-
-    ObjectBinding<Vector3D> translationBinding = createObjectBinding(
-            () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
-            xTranslationProperty, yTranslationProperty, zTranslationProperty
-    );
-
-    ObjectBinding<Vector3D> scaleBinding = createObjectBinding(
-            () -> new Vector3D(scaleProperty.get(), scaleProperty.get(), scaleProperty.get()),
-            scaleProperty
-    );
-
-    ObjectBinding<Vector3D> rotationBinding = createObjectBinding(
-            () -> new Vector3D(xRotationProperty.get(), yRotationProperty.get(), zRotationProperty.get()),
-            xRotationProperty, yRotationProperty, zRotationProperty
-    );
-
-    ObjectBinding<Matrix4D> modelMatrix = createObjectBinding(
-            () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
-            translationBinding, scaleBinding, rotationBinding
-    );
-
-    ObjectBinding<Vector3D> eyeBinding = createObjectBinding(
-            () -> getEyeVector(xEyeProperty.get(), yEyeProperty.get(), radiusProperty.get()),
-            xEyeProperty, yEyeProperty, radiusProperty
-    );
-
-    ObjectBinding<Matrix4D> viewMatrix = createObjectBinding(
-            () -> getViewMatrix(eyeBinding.get()),
-            eyeBinding
-    );
-
-    private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 60f, 0.1f, 100.f);
+    private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 45f, 0.1f, 100.f);
     private static final Matrix4D VIEWPORT_MATRIX = buildViewportMatrix(W, H);
-
-    private boolean mouseDragging = false;
-
     private static final Map<KeyCode, BooleanProperty> KEYS = new HashMap<>() {{
         put(KeyCode.X, new SimpleBooleanProperty(false));
         put(KeyCode.Y, new SimpleBooleanProperty(false));
@@ -125,6 +64,53 @@ public class MainController {
         put(KeyCode.LEFT, new SimpleBooleanProperty(false));
         put(KeyCode.RIGHT, new SimpleBooleanProperty(false));
     }};
+    private final ExecutorService executorService;
+    private final ObjFileParser parser = ObjFileParserBuilder.build();
+    private final BlockingQueue<WritableImageView> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
+    private final BlockingQueue<WritableImageView> emptyBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
+    IntegerProperty xTranslationProperty = new SimpleIntegerProperty(0);
+    IntegerProperty yTranslationProperty = new SimpleIntegerProperty(0);
+    IntegerProperty zTranslationProperty = new SimpleIntegerProperty(0);
+    FloatProperty xRotationProperty = new SimpleFloatProperty(0);
+    FloatProperty yRotationProperty = new SimpleFloatProperty(0);
+    FloatProperty zRotationProperty = new SimpleFloatProperty(0);
+    FloatProperty scaleProperty = new SimpleFloatProperty(1);
+    FloatProperty xEyeProperty = new SimpleFloatProperty(0);
+    FloatProperty yEyeProperty = new SimpleFloatProperty(0);
+    FloatProperty radiusProperty = new SimpleFloatProperty(100);
+    ObjectBinding<Vector3D> translationBinding = createObjectBinding(
+            () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
+            xTranslationProperty, yTranslationProperty, zTranslationProperty
+    );
+    ObjectBinding<Vector3D> scaleBinding = createObjectBinding(
+            () -> new Vector3D(scaleProperty.get(), scaleProperty.get(), scaleProperty.get()),
+            scaleProperty
+    );
+    ObjectBinding<Vector3D> rotationBinding = createObjectBinding(
+            () -> new Vector3D(xRotationProperty.get(), yRotationProperty.get(), zRotationProperty.get()),
+            xRotationProperty, yRotationProperty, zRotationProperty
+    );
+    ObjectBinding<Matrix4D> modelMatrix = createObjectBinding(
+            () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
+            translationBinding, scaleBinding, rotationBinding
+    );
+    float lastPositionX;
+    float lastPositionY;
+    float sensibility = 0.01f;
+    float lastTheta = 0;
+    float lastPhi = 0;
+    ObjectBinding<Vector3D> eyeBinding = createObjectBinding(
+            () -> getEyeVector(xEyeProperty.get(), yEyeProperty.get(), radiusProperty.get()),
+            xEyeProperty, yEyeProperty, radiusProperty
+    );
+    ObjectBinding<Matrix4D> viewMatrix = createObjectBinding(
+            () -> getViewMatrix(eyeBinding.get()),
+            eyeBinding
+    );
+    @FXML
+    private BorderPane pane;
+    private WritableImageView currentBuffer;
+    private boolean mouseDragging = false;
 
     public MainController(ExecutorService executorService) {
         this.executorService = executorService;
@@ -142,7 +128,7 @@ public class MainController {
 
         final var rotationStep = (float) Math.PI / 32.0f;
         final var translationStep = 1;
-        final var scaleStep = 0.05f;
+        final var scaleStep = 2f;
 
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
         listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
@@ -217,7 +203,6 @@ public class MainController {
 
         xEyeProperty.set(0);
         yEyeProperty.set(0);
-        zEyeProperty.set(0);
     }
 
     void addUiNode(Node node) {
@@ -262,13 +247,6 @@ public class MainController {
             KEYS.get(code).set(false);
     }
 
-    float lastPositionX;
-    float lastPositionY;
-    float sensibility = 0.01f;
-    float lastTheta = 0;
-    float lastPhi = 0;
-
-
     public void onMouseDragged(MouseEvent e) {
         if (!mouseDragging)
             return;
@@ -308,25 +286,42 @@ public class MainController {
                 final var buffer = emptyBuffers.take();
                 buffer.setPixels(BACKGROUND_COLOR_ARRAY);
                 final var mvp = PROJECTION_MATRIX.multiply(viewMatrix.get()).multiply(modelMatrix.get());
+                var zBuffer = new float[W * H];
+                Arrays.fill(zBuffer, Float.MIN_VALUE);
                 for (var face : group.faces()) {
                     var elements = face.faceElements();
-                    final var first = mvp.multiplyWithWNormalization(elements[0].getVertex());
-                    final var second = mvp.multiplyWithWNormalization(elements[1].getVertex());
-                    final var third = mvp.multiplyWithWNormalization(elements[2].getVertex());
-                    final var firstVertex = VIEWPORT_MATRIX.multiply(first);
-                    final var secondVertex = VIEWPORT_MATRIX.multiply(second);
-                    final var thirdVertex = VIEWPORT_MATRIX.multiply(third);
-                    int colorARGB = 255 << 24 | ThreadLocalRandom.current().nextInt(0, 255) << 16 | ThreadLocalRandom.current().nextInt(0, 255) << 8 | ThreadLocalRandom.current().nextInt(0, 255);
+
+                    var firstOriginal = vector4D(elements[0].getVertex());
+                    var secondOriginal = vector4D(elements[1].getVertex());
+                    var thirdOriginal = vector4D(elements[2].getVertex());
+
+                    var firstMvp = mvp.multiply(firstOriginal);
+                    var secondMvp = mvp.multiply(secondOriginal);
+                    var thirdMvp = mvp.multiply(thirdOriginal);
+
+                    var firstMvpNormalized = firstMvp.divide(firstMvp.w());
+                    var secondMvpNormalized = secondMvp.divide(secondMvp.w());
+                    var thirdMvpNormalized = thirdMvp.divide(thirdMvp.w());
+
+                    var firstViewport = VIEWPORT_MATRIX.multiply(firstMvpNormalized);
+                    var secondViewport = VIEWPORT_MATRIX.multiply(secondMvpNormalized);
+                    var thirdViewport = VIEWPORT_MATRIX.multiply(thirdMvpNormalized);
+
+                    var third3D = thirdMvp.to3D();
+                    var normal = (third3D.subtract(firstMvp.to3D())).cross(third3D.subtract(secondMvp.to3D())).normalize();
+                    var light = new Vector3D(0, 0, -1);
+                    var factor = (normal.dot(light) * 255f);
+                    if (factor <= 0)
+                        continue;
+
+                    var intFactor = (int) factor;
+                    int colorARGB = 255 << 24 | intFactor << 16 | intFactor << 8 | intFactor;
                     drawTriangleBoxing(
                             buffer,
-                            new Vector2D(
-                                    firstVertex.getX(),
-                                    firstVertex.getY()),
-                            new Vector2D(
-                                    secondVertex.getX(),
-                                    secondVertex.getY()),
-                            new Vector2D(thirdVertex.getX(),
-                                    thirdVertex.getY()),
+                            zBuffer,
+                            new Vector3D(firstViewport.x(), firstViewport.y(), firstMvp.z()),
+                            new Vector3D(secondViewport.x(), secondViewport.y(), secondMvp.z()),
+                            new Vector3D(thirdViewport.x(), thirdViewport.y(), thirdMvp.z()),
                             colorARGB
                     );
                 }
@@ -337,7 +332,16 @@ public class MainController {
         });
     }
 
-    private void drawTriangleBoxing(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
+    private Vector4D vector4D(Vertex vertex) {
+        return new Vector4D(vertex.getX(), vertex.getY(), vertex.getZ(), vertex.getW());
+    }
+
+    private void drawTriangleBoxing(WritableImageView buffer,
+                                    float[] zBuffer,
+                                    Vector3D t0,
+                                    Vector3D t1,
+                                    Vector3D t2,
+                                    int color) {
         var bboxminX = W - 1f;
         var bboxminY = H - 1f;
         var bboxmaxX = 0f;
@@ -366,88 +370,33 @@ public class MainController {
         bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t2.x()));
         bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t2.y()));
 
-        for (var x = bboxminX; x <= bboxmaxX; x++) {
-            for (var y = bboxminY; y <= bboxmaxY; y++) {
+        for (var x = (int) bboxminX; x <= (int) bboxmaxX; x++) {
+            for (var y = (int) bboxminY; y <= (int) bboxmaxY; y++) {
                 var barycentric = barycentric(t0, t1, t2, x, y);
                 if (barycentric.x() < 0 || barycentric.y() < 0 || barycentric.z() < 0)
                     continue;
-                drawPixel(buffer, Math.round(x), Math.round(y), color);
+
+                var depth = 0f;
+                depth += t0.z() * barycentric.x();
+                depth += t1.z() * barycentric.y();
+                depth += t2.z() * barycentric.z();
+
+                var idx = x + y * W;
+                if (zBuffer[idx] < depth) {
+                    zBuffer[idx] = depth;
+                    drawPixel(buffer, x, y, color);
+                }
             }
         }
     }
 
-    private Vector3D barycentric(Vector2D t0, Vector2D t1, Vector2D t2, float x, float y) {
-        var first = new Vector3D(t2.x() - t0.x(), t1.x() - t0.x(), t0.x() - x);
-        var second = new Vector3D(t2.y() - t0.y(), t1.y() - t0.y(), t0.y() - y);
+    private Vector3D barycentric(Vector3D A, Vector3D B, Vector3D C, int x, int y) {
+        var first = new Vector3D(C.x() - A.x(), B.x() - A.x(), A.x() - x);
+        var second = new Vector3D(C.y() - A.y(), B.y() - A.y(), A.y() - y);
         var u = first.cross(second);
-        if (Math.abs(u.z()) < 1f)
-            return new Vector3D(-1, 1, 1);
-        return new Vector3D(1.f - (u.x() + u.y()) / u.z(), u.y() / u.z(), u.x() / u.z());
-    }
-
-    private void drawTriangleLineScanning(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
-        var degenerateTriangle = Float.compare(t0.y(), t1.y()) == 0 && Float.compare(t0.y(), t2.y()) == 0;
-        if (degenerateTriangle)
-            return;
-
-        if (t0.y() > t1.y()) {
-            var temp = t0;
-            t0 = t1;
-            t1 = temp;
-        }
-
-        if (t0.y() > t2.y()) {
-            var temp = t0;
-            t0 = t2;
-            t2 = temp;
-        }
-
-        if (t1.y() > t2.y()) {
-            var temp = t1;
-            t1 = t2;
-            t2 = temp;
-        }
-
-        var totalHeight = t2.y() - t0.y();
-        for (var i = 0; i < totalHeight; i++) {
-            var isSecondHalf = i > t1.y() - t0.y() || Float.compare(t1.y(), t0.y()) == 0;
-            var segmentHeight = isSecondHalf ? t2.y() - t1.y() : t1.y() - t0.y();
-            var alpha = i / totalHeight;
-            var beta = (i - (isSecondHalf ? t1.y() - t0.y() : 0)) / segmentHeight; // be careful: with above conditions no division by zero here
-            var A = t0.add(t2.subtract(t0).mul(alpha));
-            var B = isSecondHalf ? t1.add(t2.subtract(t1).mul(beta)) : t0.add(t1.subtract(t0).mul(beta));
-
-            if (A.x() > B.x()) {
-                var temp = A;
-                A = B;
-                B = temp;
-            }
-
-            for (var j = A.x(); j <= B.x(); j++)
-                drawPixel(buffer, Math.round(j), Math.round(t0.y() + i), color);
-        }
-    }
-
-    private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
-        var dx = Math.abs(x2 - x1);
-        var sx = x1 < x2 ? 1 : -1;
-        var dy = -Math.abs(y2 - y1);
-        var sy = y1 < y2 ? 1 : -1;
-        var err = dx + dy;
-        while (true) {
-            drawPixel(buffer, x1, y1, color);
-            if (x1 == x2 && y1 == y2)
-                return;
-            var err2 = err * 2;
-            if (err2 > dy) {
-                err += dy;
-                x1 += sx;
-            }
-            if (err2 <= dx) {
-                err += dx;
-                y1 += sy;
-            }
-        }
+        if (Math.abs(u.z()) > 1e-2)
+            return new Vector3D(1.f - (u.x() + u.y()) / u.z(), u.y() / u.z(), u.x() / u.z());
+        return new Vector3D(-1, 1, 1);
     }
 
     private void drawPixel(WritableImageView buffer, int x, int y, int argbColor) {
