@@ -8,6 +8,7 @@ module com.morka.cga.parser {
 
     exports com.morka.cga.parser.model;
     exports com.morka.cga.parser.service;
+    exports com.morka.cga.parser.exception;
 
     provides ObjFileParser with ObjFileParserImpl;
 }

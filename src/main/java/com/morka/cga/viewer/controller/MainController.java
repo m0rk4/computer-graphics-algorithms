@@ -1,5 +1,6 @@
 package com.morka.cga.viewer.controller;
 
+import com.morka.cga.parser.exception.ObjParserException;
 import com.morka.cga.parser.model.ObjGroup;
 import com.morka.cga.parser.service.ObjFileParser;
 import com.morka.cga.parser.service.ObjFileParserBuilder;
@@ -342,7 +343,12 @@ public class MainController {
         final var filter = new FileChooser.ExtensionFilter("Wavefont OBJ (*.obj)", "*.obj");
         fileChooser.getExtensionFilters().add(filter);
         final var file = fileChooser.showOpenDialog(null);
-        if (nonNull(file))
-            OBJECT_BINDING.set(parser.parse(file));
+        if (nonNull(file)) {
+            try {
+                OBJECT_BINDING.set(parser.parse(file));
+            } catch (ObjParserException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.morka.cga.parser.service.impl;
 
+import com.morka.cga.parser.exception.ObjParserException;
 import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.FaceElement;
 import com.morka.cga.parser.model.Line;
@@ -14,10 +15,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -48,7 +47,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
 
     @Override
-    public ObjGroup parse(File file) {
+    public ObjGroup parse(File file) throws ObjParserException {
         try {
             final var faces = new ArrayList<Face>();
             final var vertexMap = new HashMap<Integer, Vertex>();
@@ -64,14 +63,19 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 if (line.startsWith(VERTEX_NORMAL_PREFIX))
                     vertexNormalMap.put(vertexNormalMap.size() + 1, parseVertexNormal(line));
 
-                if (line.startsWith(FACE_PREFIX))
-                    faces.add(parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line));
+                if (line.startsWith(FACE_PREFIX)) {
+                    var face = parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line);
+                    var facesCount = face.faceElements().length;
+                    if (facesCount != 3)
+                        throw new ObjParserException(("Parser supports only triangle faces currently." +
+                                " Found %s faces").formatted(facesCount));
+                    faces.add(face);
+                }
             }
             final var lines = faces.stream().flatMap(this::getLines).toList();
             return new ObjGroup(faces.toArray(new Face[0]), lines);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, () -> "Failed to load file %s.".formatted(file));
-            return new ObjGroup(new Face[0], Collections.emptyList());
+            throw new ObjParserException(e.getMessage(), e);
         }
     }
 
