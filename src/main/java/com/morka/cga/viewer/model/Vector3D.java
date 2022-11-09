@@ -1,7 +1,5 @@
 package com.morka.cga.viewer.model;
 
-import java.util.Vector;
-
 public record Vector3D(float x, float y, float z) {
 
     public float length() {

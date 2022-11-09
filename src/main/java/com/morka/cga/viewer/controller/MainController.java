@@ -6,9 +6,16 @@ import com.morka.cga.parser.service.ObjFileParser;
 import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
+import com.morka.cga.viewer.model.Vector2D;
 import com.morka.cga.viewer.model.Vector3D;
 import javafx.beans.binding.ObjectBinding;
-import javafx.beans.property.*;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.FloatProperty;
+import javafx.beans.property.IntegerProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleFloatProperty;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
@@ -17,15 +24,21 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 
-import static com.morka.cga.viewer.utils.MatrixUtils.*;
+import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.getViewMatrix;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
 
@@ -43,6 +56,7 @@ public class MainController {
     private static final int W = 1280;
     private static final int H = 690;
     private static final int ARGB_BLACK = 255 << 24;
+    private static final int ARGB_WHITE = 0;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
     private final BlockingQueue<WritableImageView> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
@@ -120,8 +134,12 @@ public class MainController {
     @FXML
     protected void initialize() {
         pane.setCenter(GROUP);
-        for (int i = 0; i < BUFFER_SIZE; i++)
-            emptyBuffers.add(new WritableImageView(W, H));
+        Arrays.fill(BACKGROUND_COLOR_ARRAY, ARGB_BLACK);
+        for (int i = 0; i < BUFFER_SIZE; i++) {
+            var buffer = new WritableImageView(W, H);
+            buffer.setPixels(BACKGROUND_COLOR_ARRAY);
+            emptyBuffers.add(buffer);
+        }
 
         final var rotationStep = (float) Math.PI / 32.0f;
         final var translationStep = 1;
@@ -290,24 +308,78 @@ public class MainController {
             try {
                 final var buffer = emptyBuffers.take();
                 buffer.setPixels(BACKGROUND_COLOR_ARRAY);
-                group.lines().parallelStream().forEach(line -> {
-                    final var mvp = PROJECTION_MATRIX.multiply(viewMatrix.get()).multiply(modelMatrix.get());
-                    final var fromTransformedNormalized = mvp.multiplyWithWNormalization(line.from());
-                    final var toTransformedNormalized = mvp.multiplyWithWNormalization(line.to());
-                    final var from = VIEWPORT_MATRIX.multiply(fromTransformedNormalized);
-                    final var to = VIEWPORT_MATRIX.multiply(toTransformedNormalized);
-                    drawLine(buffer,
-                            Math.round(from.getX()),
-                            Math.round(from.getY()),
-                            Math.round(to.getX()),
-                            Math.round(to.getY()),
-                            ARGB_BLACK);
-                });
+                final var mvp = PROJECTION_MATRIX.multiply(viewMatrix.get()).multiply(modelMatrix.get());
+                for (var face : group.faces()) {
+                    var elements = face.faceElements();
+                    final var first = mvp.multiplyWithWNormalization(elements[0].getVertex());
+                    final var second = mvp.multiplyWithWNormalization(elements[1].getVertex());
+                    final var third = mvp.multiplyWithWNormalization(elements[2].getVertex());
+                    final var firstVertex = VIEWPORT_MATRIX.multiply(first);
+                    final var secondVertex = VIEWPORT_MATRIX.multiply(second);
+                    final var thirdVertex = VIEWPORT_MATRIX.multiply(third);
+                    int colorARGB = 255 << 24 | ThreadLocalRandom.current().nextInt(0, 255) << 16 | ThreadLocalRandom.current().nextInt(0, 255) << 8 | ThreadLocalRandom.current().nextInt(0, 255);
+                    drawTriangle(
+                            buffer,
+                            new Vector2D(
+                                    firstVertex.getX(),
+                                    firstVertex.getY()),
+                            new Vector2D(
+                                    secondVertex.getX(),
+                                    secondVertex.getY()),
+                            new Vector2D(thirdVertex.getX(),
+                                    thirdVertex.getY()),
+                            colorARGB
+                    );
+                }
                 fullBuffers.add(buffer);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private void drawTriangle(WritableImageView buffer, Vector2D t0, Vector2D t1, Vector2D t2, int color) {
+        var degenerateTriangle = Float.compare(t0.y(), t1.y()) == 0 &&
+                Float.compare(t0.y(), t2.y()) == 0;
+        if (degenerateTriangle)
+            return;
+
+        if (t0.y() > t1.y()) {
+            var temp = t0;
+            t0 = t1;
+            t1 = temp;
+        }
+
+        if (t0.y() > t2.y()) {
+            var temp = t0;
+            t0 = t2;
+            t2 = temp;
+        }
+
+        if (t1.y() > t2.y()) {
+            var temp = t1;
+            t1 = t2;
+            t2 = temp;
+        }
+
+        var totalHeight = t2.y() - t0.y();
+        for (var i = 0; i < totalHeight; i++) {
+            var isSecondHalf = i > t1.y() - t0.y() || Float.compare(t1.y(), t0.y()) == 0;
+            var segmentHeight = isSecondHalf ? t2.y() - t1.y() : t1.y() - t0.y();
+            var alpha = i / totalHeight;
+            var beta = (i - (isSecondHalf ? t1.y() - t0.y() : 0)) / segmentHeight; // be careful: with above conditions no division by zero here
+            var A = t0.add(t2.subtract(t0).mul(alpha));
+            var B = isSecondHalf ? t1.add(t2.subtract(t1).mul(beta)) : t0.add(t1.subtract(t0).mul(beta));
+
+            if (A.x() > B.x()) {
+                var temp = A;
+                A = B;
+                B = temp;
+            }
+
+            for (var j = A.x(); j <= B.x(); j++)
+                drawPixel(buffer, Math.round(j), Math.round(t0.y() + i), color);
+        }
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
