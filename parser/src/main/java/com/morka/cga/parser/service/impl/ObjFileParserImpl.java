@@ -121,7 +121,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 }
             }
             final var lines = faces.stream().flatMap(this::getLines).toList();
-            return new ObjGroup(faces.toArray(new Face[0]), lines);
+            return new ObjGroup(faces.toArray(new Face[0]), faces, lines);
         } catch (IOException e) {
             throw new ObjParserException(e.getMessage(), e);
         }

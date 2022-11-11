@@ -7,11 +7,10 @@ import javafx.scene.image.WritableImage;
 
 import java.nio.IntBuffer;
 
-public class WritableImageView extends ImageView {
+public final class WritableImageView extends ImageView {
+
     private final int[] rawInts;
-
     private final int width;
-
     private final PixelBuffer<IntBuffer> pixelBuffer;
 
     public WritableImageView(int width, int height) {
@@ -23,14 +22,8 @@ public class WritableImageView extends ImageView {
         pixelBuffer = new PixelBuffer<>(width, height, buffer, PixelFormat.getIntArgbPreInstance());
 
         setSmooth(false);
-//        setFitHeight(height);
-//        setFitWidth(width);
         setPickOnBounds(true);
         setImage(new WritableImage(pixelBuffer));
-    }
-
-    public int[] getPixels() {
-        return rawInts;
     }
 
     public void setPixels(int[] rawPixels) {

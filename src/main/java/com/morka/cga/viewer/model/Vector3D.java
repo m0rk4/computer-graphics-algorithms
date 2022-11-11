@@ -7,7 +7,7 @@ public record Vector3D(float x, float y, float z) {
     }
 
     public Vector3D normalize() {
-        final var length = length();
+        var length = length();
         return new Vector3D(x / length, y / length, z / length);
     }
 

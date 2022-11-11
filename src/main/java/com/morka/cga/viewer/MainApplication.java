@@ -16,11 +16,11 @@ import java.util.concurrent.TimeUnit;
 public class MainApplication extends Application {
 
     private static final ExecutorService THREAD_POOL = new ThreadPoolExecutor(
-            Runtime.getRuntime().availableProcessors(),
-            Runtime.getRuntime().availableProcessors(),
+            3,
+            3,
             0L,
             TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(Runtime.getRuntime().availableProcessors()),
+            new ArrayBlockingQueue<>(3),
             new ThreadPoolExecutor.DiscardOldestPolicy()
     );
     private static final int THREAD_POOL_TERMINATION_TIME_IN_SECONDS = 60;
@@ -58,11 +58,11 @@ public class MainApplication extends Application {
 
     @Override
     public void start(Stage stage) throws IOException {
-        final var fxmlLoader = new FXMLLoader(MainApplication.class.getResource(FXML_VIEW_NAME));
-        final var controller = new MainController(THREAD_POOL);
-        final var timer = getTimer(controller);
+        var fxmlLoader = new FXMLLoader(MainApplication.class.getResource(FXML_VIEW_NAME));
+        var controller = new MainController(THREAD_POOL);
+        var timer = getTimer(controller);
         fxmlLoader.setControllerFactory(__ -> controller);
-        final var scene = new Scene(fxmlLoader.load(), 1280, 720);
+        var scene = new Scene(fxmlLoader.load(), 1280, 720);
         scene.setOnKeyPressed(controller::onKeyPressed);
         scene.setOnKeyReleased(controller::onKeyReleased);
         stage.setTitle(APP_TITLE);
