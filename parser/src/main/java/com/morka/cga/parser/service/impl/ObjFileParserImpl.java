@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.DoubleConsumer;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -96,13 +97,16 @@ public final class ObjFileParserImpl implements ObjFileParser {
     }
 
     @Override
-    public ObjGroup parse(File file) throws ObjParserException {
+    public ObjGroup parse(File file, DoubleConsumer progressConsumer) throws ObjParserException {
         try {
-            final var faces = new ArrayList<Face>();
-            final var vertexMap = new HashMap<Integer, Vertex>();
-            final var vertexTextureMap = new HashMap<Integer, VertexTexture>();
-            final var vertexNormalMap = new HashMap<Integer, VertexNormal>();
-            for (final var line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+            var faces = new ArrayList<Face>();
+            var vertexMap = new HashMap<Integer, Vertex>();
+            var vertexTextureMap = new HashMap<Integer, VertexTexture>();
+            var vertexNormalMap = new HashMap<Integer, VertexNormal>();
+            var fileLines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
+            var fileLinesCount = fileLines.size();
+            var parsedLines = 0;
+            for (var line : fileLines) {
                 if (line.startsWith(VERTEX_PREFIX))
                     vertexMap.put(vertexMap.size() + 1, parseVertex(line));
 
@@ -116,10 +120,15 @@ public final class ObjFileParserImpl implements ObjFileParser {
                     var face = parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line);
                     triangulateFaceIfNeeded(faces, face);
                 }
+
+                parsedLines++;
+                var progress = (double) parsedLines / fileLinesCount;
+                progressConsumer.accept(progress);
             }
             var lines = faces.stream().flatMap(this::getLines).toList();
             return new ObjGroup(faces.toArray(new Face[0]), faces, lines);
         } catch (IOException e) {
+            e.printStackTrace();
             throw new ObjParserException(e.getMessage(), e);
         }
     }
@@ -127,7 +136,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
     private void triangulateFaceIfNeeded(List<Face> faces, Face face) {
         var faceElements = face.faceElements();
         var length = faceElements.length;
-        if (length < 4)  {
+        if (length < 4) {
             faces.add(face);
             return;
         }

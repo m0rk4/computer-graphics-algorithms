@@ -9,6 +9,7 @@ import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
+import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.FloatProperty;
@@ -21,18 +22,23 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
 import javafx.scene.Node;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.stage.FileChooser;
 
+import java.io.File;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.function.DoubleConsumer;
 
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
@@ -42,16 +48,15 @@ import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
 
 public class MainController {
-
-    private static final Group GROUP = new Group();
-    private static final ObservableList<Node> NODES = GROUP.getChildren();
+    private static final Group FRAME_GROUP = new Group();
+    private static final ObservableList<Node> FRAME_NODES = FRAME_GROUP.getChildren();
     private static final int W = 1280;
     private static final int H = 690;
     private static final int ARGB_BLACK = 255 << 24 | 255 << 16 | 128 << 8 | 128;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
     private static final float[] Z_BUFFER_INIT_ARRAY = new float[W * H];
-    private static final SimpleObjectProperty<ObjGroup> OBJECT_BINDING = new SimpleObjectProperty<>();
+    private static final SimpleObjectProperty<ObjGroup> CURRENT_OBJ = new SimpleObjectProperty<>();
     private static final Matrix4D PROJECTION_MATRIX = buildProjectionMatrix(W, H, 45, 0.1f, 100);
     private static final Matrix4D VIEWPORT_MATRIX = buildViewportMatrix(W, H);
     private static final Map<KeyCode, BooleanProperty> KEYS = new HashMap<>() {{
@@ -111,8 +116,11 @@ public class MainController {
     );
     @FXML
     private BorderPane pane;
+    @FXML
+    private ProgressIndicator progressIndicator;
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
+    private long lastProgressUpdateTimestamp = System.nanoTime();
 
     public MainController(ExecutorService executorService) {
         this.executorService = executorService;
@@ -120,14 +128,7 @@ public class MainController {
 
     @FXML
     protected void initialize() {
-        pane.setCenter(GROUP);
-        Arrays.fill(BACKGROUND_COLOR_ARRAY, ARGB_BLACK);
-        Arrays.fill(Z_BUFFER_INIT_ARRAY, Float.NEGATIVE_INFINITY);
-        for (int i = 0; i < BUFFER_SIZE; i++) {
-            var buffer = new WritableImageView(W, H);
-            var zBuffer = new float[W * H];
-            emptyBuffers.add(new FrameAndZBuffers(buffer, zBuffer));
-        }
+        prepareBuffers();
 
         var rotationStep = (float) Math.PI / 32.0f;
         var translationStep = 1;
@@ -153,7 +154,7 @@ public class MainController {
         modelMatrix.addListener((__, ___, ____) -> repaint());
         viewMatrix.addListener((__, ___, ____) -> repaint());
 
-        OBJECT_BINDING.addListener((__, ___, obj) -> {
+        CURRENT_OBJ.addListener((__, ___, obj) -> {
             resetStates();
             if (nonNull(obj))
                 repaint();
@@ -173,6 +174,16 @@ public class MainController {
                 return;
             radiusProperty.set((float) (radiusProperty.get() - dy / 20));
         });
+    }
+
+    private void prepareBuffers() {
+        Arrays.fill(BACKGROUND_COLOR_ARRAY, ARGB_BLACK);
+        Arrays.fill(Z_BUFFER_INIT_ARRAY, Float.NEGATIVE_INFINITY);
+        for (var i = 0; i < BUFFER_SIZE; i++) {
+            var buffer = new WritableImageView(W, H);
+            var zBuffer = new float[W * H];
+            emptyBuffers.add(new FrameAndZBuffers(buffer, zBuffer));
+        }
     }
 
     public void onUpdate() throws InterruptedException {
@@ -209,15 +220,15 @@ public class MainController {
     }
 
     void addUiNode(Node node) {
-        NODES.add(node);
+        FRAME_NODES.add(node);
     }
 
     void removeUiNode(Node node) {
-        NODES.remove(node);
+        FRAME_NODES.remove(node);
     }
 
     private void repaint() {
-        draw(OBJECT_BINDING.get());
+        draw(CURRENT_OBJ.get());
     }
 
     private void listenFor(KeyCode key, Runnable item) {
@@ -425,11 +436,31 @@ public class MainController {
         fileChooser.getExtensionFilters().add(filter);
         var file = fileChooser.showOpenDialog(null);
         if (nonNull(file)) {
-            try {
-                OBJECT_BINDING.set(parser.parse(file));
-            } catch (ObjParserException e) {
-                e.printStackTrace();
+            pane.setCenter(progressIndicator);
+            CompletableFuture.supplyAsync(() -> parseObjAndUpdateProgress(file)).thenAccept(objOpt ->
+                    objOpt.ifPresent(obj -> Platform.runLater(() -> {
+                        progressIndicator.setProgress(0);
+                        pane.setCenter(FRAME_GROUP);
+                        CURRENT_OBJ.set(obj);
+                    })));
+        }
+    }
+
+    private Optional<ObjGroup> parseObjAndUpdateProgress(File file) {
+        var progressConsumer = (DoubleConsumer) progress -> {
+            // throttle ui events and make them ~60 fps (16.(6) ms)
+            var throttleTime = 17000000;
+            var now = System.nanoTime();
+            if (now - lastProgressUpdateTimestamp > throttleTime) {
+                lastProgressUpdateTimestamp = now;
+                Platform.runLater(() -> progressIndicator.setProgress(progress));
             }
+        };
+        try {
+            return Optional.of(parser.parse(file, progressConsumer));
+        } catch (ObjParserException e) {
+            e.printStackTrace();
+            return Optional.empty();
         }
     }
 
