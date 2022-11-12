@@ -47,7 +47,7 @@ public class MainController {
     private static final ObservableList<Node> NODES = GROUP.getChildren();
     private static final int W = 1280;
     private static final int H = 690;
-    private static final int ARGB_BLACK = 255 << 24;
+    private static final int ARGB_BLACK = 255 << 24 | 255 << 16 | 128 << 8 | 128;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
     private static final float[] Z_BUFFER_INIT_ARRAY = new float[W * H];
@@ -79,7 +79,7 @@ public class MainController {
     private final FloatProperty scaleProperty = new SimpleFloatProperty(1);
     private final FloatProperty xEyeProperty = new SimpleFloatProperty(0);
     private final FloatProperty yEyeProperty = new SimpleFloatProperty(0);
-    private final FloatProperty radiusProperty = new SimpleFloatProperty(100);
+    private final FloatProperty radiusProperty = new SimpleFloatProperty(50);
     private final ObjectBinding<Vector3D> translationBinding = createObjectBinding(
             () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
             xTranslationProperty, yTranslationProperty, zTranslationProperty
@@ -324,7 +324,7 @@ public class MainController {
                     var worldNormal = thirdWorld.subtract(firstWorld)
                             .cross(thirdWorld.subtract(secondWorld))
                             .normalize();
-                    var eye = eyeBinding.get().normalize();
+                    var eye = eyeBinding.get().subtract(firstWorld).normalize();
                     if (worldNormal.dot(eye) <= 0)
                         return;
 

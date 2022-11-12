@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -113,18 +114,30 @@ public final class ObjFileParserImpl implements ObjFileParser {
 
                 if (line.startsWith(FACE_PREFIX)) {
                     var face = parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line);
-                    var facesCount = face.faceElements().length;
-                    if (facesCount != 3)
-                        throw new ObjParserException(("Parser supports only triangle faces currently." +
-                                " Found %s faces").formatted(facesCount));
-                    faces.add(face);
+                    triangulateFaceIfNeeded(faces, face);
                 }
             }
-            final var lines = faces.stream().flatMap(this::getLines).toList();
+            var lines = faces.stream().flatMap(this::getLines).toList();
             return new ObjGroup(faces.toArray(new Face[0]), faces, lines);
         } catch (IOException e) {
             throw new ObjParserException(e.getMessage(), e);
         }
+    }
+
+    private void triangulateFaceIfNeeded(List<Face> faces, Face face) {
+        var faceElements = face.faceElements();
+        var length = faceElements.length;
+        if (length < 4)  {
+            faces.add(face);
+            return;
+        }
+
+        for (var i = 1; i < length - 1; i++)
+            faces.add(new Face(new FaceElement[]{
+                    faceElements[0],
+                    faceElements[i],
+                    faceElements[i + 1]
+            }));
     }
 
     private Stream<Line> getLines(Face face) {
@@ -135,6 +148,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             final var to = faceElements[i + 1].getVertex();
             result.add(new Line(from, to));
         }
+        result.add(new Line(faceElements[faceElements.length - 1].getVertex(), faceElements[0].getVertex()));
         return result.stream();
     }
 
