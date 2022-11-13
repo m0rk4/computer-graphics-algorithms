@@ -9,6 +9,7 @@ import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
+import com.morka.cga.viewer.utils.ColorUtils;
 import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
@@ -22,6 +23,7 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
 import javafx.scene.Node;
+import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
@@ -118,6 +120,8 @@ public class MainController {
     private BorderPane pane;
     @FXML
     private ProgressIndicator progressIndicator;
+    @FXML
+    private ColorPicker backgroundColorPicker;
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
     private long lastProgressUpdateTimestamp = System.nanoTime();
@@ -174,10 +178,15 @@ public class MainController {
                 return;
             radiusProperty.set((float) (radiusProperty.get() - dy / 20));
         });
+
+        backgroundColorPicker.valueProperty().addListener((__, ___, color) -> {
+            Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(color));
+            repaint();
+        });
     }
 
     private void prepareBuffers() {
-        Arrays.fill(BACKGROUND_COLOR_ARRAY, ARGB_BLACK);
+        Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(backgroundColorPicker.getValue()));
         Arrays.fill(Z_BUFFER_INIT_ARRAY, Float.NEGATIVE_INFINITY);
         for (var i = 0; i < BUFFER_SIZE; i++) {
             var buffer = new WritableImageView(W, H);
@@ -228,7 +237,9 @@ public class MainController {
     }
 
     private void repaint() {
-        draw(CURRENT_OBJ.get());
+        var obj = CURRENT_OBJ.get();
+        if (obj != null)
+            draw(obj);
     }
 
     private void listenFor(KeyCode key, Runnable item) {
@@ -431,6 +442,7 @@ public class MainController {
 
     @FXML
     void onFileOpen() {
+        pane.requestFocus();
         var fileChooser = new FileChooser();
         var filter = new FileChooser.ExtensionFilter("Wavefont OBJ (*.obj)", "*.obj");
         fileChooser.getExtensionFilters().add(filter);
