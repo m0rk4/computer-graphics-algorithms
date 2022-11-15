@@ -12,13 +12,7 @@ import com.morka.cga.viewer.utils.ColorUtils;
 import com.morka.cga.viewer.utils.GeomUtils;
 import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
-import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.FloatProperty;
-import javafx.beans.property.IntegerProperty;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleFloatProperty;
-import javafx.beans.property.SimpleIntegerProperty;
-import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.*;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
@@ -37,19 +31,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.*;
 import java.util.function.DoubleConsumer;
 import java.util.stream.Collectors;
 
 import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
-import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
-import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
-import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
-import static com.morka.cga.viewer.utils.MatrixUtils.getViewMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.*;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
 
@@ -361,6 +348,25 @@ public class MainController {
                     if (faceNormal.dot(eye) <= 0)
                         return;
 
+                    var factor = (faceNormal.dot(light) * 255);
+                    if (factor <= 0)
+                        factor = 0;
+                    var intensity = (int) factor;
+                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
+
+//                    drawTriangle(
+//                            frameBuffer,
+//                            zBuffer,
+//                            new Vector3D((int) firstViewport.x(), (int) firstViewport.y(), firstMv.z()),
+//                            new Vector3D((int) secondViewport.x(), (int) secondViewport.y(), secondMv.z()),
+//                            new Vector3D((int) thirdViewport.x(), (int) thirdViewport.y(), thirdMv.z()),
+//                            n0,
+//                            n1,
+//                            n2,
+//                            light,
+//                            eye,
+//                            flatColor
+//                    );
                     drawTriangleBoxing(
                             frameBuffer,
                             zBuffer,
@@ -537,6 +543,156 @@ public class MainController {
             }
 
             return nA.mul(B.x() - x).add(nB.mul(x - A.x())).divide(B.x() - A.x());
+        }
+    }
+
+    private void drawTriangle(WritableImageView buffer,
+                              float[] zBuffer,
+                              Vector3D t0,
+                              Vector3D t1,
+                              Vector3D t2,
+                              Vector3D n0,
+                              Vector3D n1,
+                              Vector3D n2,
+                              Vector3D light,
+                              Vector3D eye,
+                              int testColor) {
+        if (t0.y() > t1.y()) {
+            var temp = t0;
+            t0 = t1;
+            t1 = temp;
+            temp = n0;
+            n0 = n1;
+            n1 = temp;
+        }
+
+        if (t0.y() > t2.y()) {
+            var temp = t0;
+            t0 = t2;
+            t2 = temp;
+            temp = n0;
+            n0 = n2;
+            n2 = temp;
+        }
+
+        if (t1.y() > t2.y()) {
+            var temp = t1;
+            t1 = t2;
+            t2 = temp;
+            temp = n1;
+            n1 = n2;
+            n2 = temp;
+        }
+
+        var t2y = Math.min(Math.max(0, (int) t2.y()), H - 1);
+        var t1y = Math.min(Math.max(0, (int) t1.y()), H - 1);
+        var t0y = Math.min(Math.max(0, (int) t0.y()), H - 1);
+
+        var t2x = Math.min(Math.max(0, (int) t2.x()), W - 1);
+        var t1x = Math.min(Math.max(0, (int) t1.x()), W - 1);
+        var t0x = Math.min(Math.max(0, (int) t0.x()), W - 1);
+        var degenerateTriangle = t0y == t1y && t0y == t2y;
+        if (degenerateTriangle)
+            return;
+
+        var totalHeight = t2y - t0y;
+        for (var i = 0; i < totalHeight; i++) {
+            var isSecondHalf = i >= t1y - t0y;
+            var segmentHeight = isSecondHalf ? t2y - t1y : t1y - t0y;
+            var alpha = (float) i / totalHeight;
+            var beta = (float) (i - (isSecondHalf ? t1y - t0y : 0)) / segmentHeight;
+            var Ax = (int) (t0x + (t2x - t0x) * alpha);
+            var Bx = (int) (isSecondHalf ? (t1x + (t2x - t1x) * beta) : (t0x + (t1x - t0x) * beta));
+
+            if (Ax > Bx) {
+                var temp = Ax;
+                Ax = Bx;
+                Bx = temp;
+            }
+
+            for (var x = Ax; x <= Bx; x++) {
+                var y = t0y + i;
+                var barycentric = barycentric(t0, t1, t2, x, y);
+                var depth = t0.z() * barycentric.x() + t1.z() * barycentric.y() + t2.z() * barycentric.z();
+
+                var normal = getNormal(
+                        isSecondHalf,
+                        Ax,
+                        Bx,
+                        new VertexNormal(new Vector3D(t0x, t0y, t0.z()), n0),
+                        new VertexNormal(new Vector3D(t1x, t1y, t1.z()), n1),
+                        new VertexNormal(new Vector3D(t2x, t2y, t2.z()), n2),
+                        x, y
+                );
+                var reflect = normal.mul(2 * light.dot(normal)).subtract(light);
+
+                var diffuseAlbedo = new Vector3D(0.5f, 0.2f, 0.7f);
+                var specularAlbedo = new Vector3D(0.7f, 0.7f, 0.7f);
+                var specularPower = 64f;
+
+                var ambient = new Vector3D(0.1f, 0.1f, 0.1f);
+                var diffuse = diffuseAlbedo.mul(Math.max(normal.dot(light), 0));
+                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eye)), specularPower));
+
+                var color = ambient.add(diffuse).add(specular);
+                var colorFx = new Color(Math.min(1.0, color.x()), Math.min(1.0, color.y()), Math.min(color.z(), 1.0), 1);
+                var argb = ColorUtils.toArgb(colorFx);
+
+                var idx = x + y * W;
+                if (zBuffer[idx] < depth) {
+                    drawPixel(buffer, x, y, argb);
+                    zBuffer[idx] = depth;
+                }
+            }
+        }
+    }
+
+    private static Vector3D getNormal(boolean isSecondHalf,
+                                      int Ax,
+                                      int Bx,
+                                      VertexNormal v0,
+                                      VertexNormal v1,
+                                      VertexNormal v2,
+                                      int x, int y) {
+        if (isSecondHalf) {
+            var vn1 = v2;
+            var firstLeft = v1.vertex().x() < v0.vertex().x();
+            var vn2 = firstLeft ? v1 : v0;
+            var vn3 = firstLeft ? v0 : v1;
+
+            var vn1Y = (int) vn1.vertex().y();
+            var vn2Y = (int) vn2.vertex().y();
+            var vn3Y = (int) vn3.vertex().y();
+
+            var nA = vn1.normal()
+                    .mul(y - vn2Y)
+                    .add(vn2.normal().mul(vn1Y - y))
+                    .divide(vn1Y - vn2Y);
+
+            var nB = vn1.normal().mul(y - vn3Y)
+                    .add(vn3.normal().mul(vn1Y - y))
+                    .divide(vn1Y - vn3Y);
+
+            return nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
+        } else {
+            var vn1 = v0;
+            var firstLeft = v1.vertex().x() < v2.vertex().x();
+            var vn2 = firstLeft ? v1 : v2;
+            var vn3 = firstLeft ? v2 : v1;
+
+            var vn1Y = (int) vn1.vertex().y();
+            var vn2Y = (int) vn2.vertex().y();
+            var vn3Y = (int) vn3.vertex().y();
+
+            var nA = vn1.normal()
+                    .mul(vn2Y - y)
+                    .add(vn2.normal().mul(y - vn1Y))
+                    .divide(vn2Y - vn1Y);
+            var nB = vn1.normal()
+                    .mul(vn3Y - y)
+                    .add(vn3.normal().mul(y - vn1Y))
+                    .divide(vn3Y - vn1Y);
+            return nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
         }
     }
 
