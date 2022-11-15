@@ -14,12 +14,15 @@
    <top>
       <ToolBar focusTraversable="false" prefHeight="40.0" prefWidth="200.0" BorderPane.alignment="CENTER">
         <items>
-          <Button fx:id="fileButton" mnemonicParsing="false" onAction="#onFileOpen" text="File" />
+          <Button mnemonicParsing="false" onAction="#onFileOpen" text="File" />
             <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color">
                <value>
                   <Color />
                </value>
             </ColorPicker>
+            <ColorPicker fx:id="ambientColorPicker" />
+            <ColorPicker fx:id="diffuseColorPicker" />
+            <ColorPicker fx:id="specularColorPicker" />
         </items>
       </ToolBar>
    </top>

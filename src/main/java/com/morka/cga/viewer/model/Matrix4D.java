@@ -33,4 +33,14 @@ public record Matrix4D(float[][] contents) {
         var ww = contents[3][0] * x + contents[3][1] * y + contents[3][2] * z + contents[3][3] * w;
         return new Vector4D(xx, yy, zz, ww);
     }
+
+    public Vector3D multiply(Vector3D vertex) {
+        var x = vertex.x();
+        var y = vertex.y();
+        var z = vertex.z();
+        var xx = contents[0][0] * x + contents[0][1] * y + contents[0][2] * z;
+        var yy = contents[1][0] * x + contents[1][1] * y + contents[1][2] * z;
+        var zz = contents[2][0] * x + contents[2][1] * y + contents[2][2] * z;
+        return new Vector3D(xx, yy, zz);
+    }
 }

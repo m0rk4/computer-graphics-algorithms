@@ -8,8 +8,8 @@ import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
-import com.morka.cga.viewer.model.Vector4D;
 import com.morka.cga.viewer.utils.ColorUtils;
+import com.morka.cga.viewer.utils.GeomUtils;
 import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
@@ -29,6 +29,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 
 import java.io.File;
@@ -39,9 +40,12 @@ import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.DoubleConsumer;
+import java.util.stream.Collectors;
 
+import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
@@ -54,7 +58,6 @@ public class MainController {
     private static final ObservableList<Node> FRAME_NODES = FRAME_GROUP.getChildren();
     private static final int W = 1280;
     private static final int H = 690;
-    private static final int ARGB_BLACK = 255 << 24 | 255 << 16 | 128 << 8 | 128;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
     private static final float[] Z_BUFFER_INIT_ARRAY = new float[W * H];
@@ -86,7 +89,7 @@ public class MainController {
     private final FloatProperty scaleProperty = new SimpleFloatProperty(1);
     private final FloatProperty xEyeProperty = new SimpleFloatProperty(0);
     private final FloatProperty yEyeProperty = new SimpleFloatProperty(0);
-    private final FloatProperty radiusProperty = new SimpleFloatProperty(50);
+    private final FloatProperty radiusProperty = new SimpleFloatProperty(100);
     private final ObjectBinding<Vector3D> translationBinding = createObjectBinding(
             () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
             xTranslationProperty, yTranslationProperty, zTranslationProperty
@@ -116,12 +119,17 @@ public class MainController {
             () -> getViewMatrix(eyeBinding.get()),
             eyeBinding
     );
+
     @FXML
     private BorderPane pane;
     @FXML
     private ProgressIndicator progressIndicator;
     @FXML
     private ColorPicker backgroundColorPicker;
+
+    private Map<Vertex, Vector3D> vertexNormalMap;
+    private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
+
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
     private long lastProgressUpdateTimestamp = System.nanoTime();
@@ -133,37 +141,39 @@ public class MainController {
     @FXML
     protected void initialize() {
         prepareBuffers();
-
         var rotationStep = (float) Math.PI / 32.0f;
         var translationStep = 1;
         var scaleStep = 1f;
-
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
         listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
-
         listenFor(KeyCode.X, KeyCode.RIGHT, () -> xRotationProperty.set(xRotationProperty.get() + rotationStep));
         listenFor(KeyCode.X, KeyCode.LEFT, () -> xRotationProperty.set(xRotationProperty.get() - rotationStep));
         listenFor(KeyCode.Y, KeyCode.RIGHT, () -> yRotationProperty.set(yRotationProperty.get() + rotationStep));
         listenFor(KeyCode.Y, KeyCode.LEFT, () -> yRotationProperty.set(yRotationProperty.get() - rotationStep));
         listenFor(KeyCode.Z, KeyCode.RIGHT, () -> zRotationProperty.set(zRotationProperty.get() + rotationStep));
         listenFor(KeyCode.Z, KeyCode.LEFT, () -> zRotationProperty.set(zRotationProperty.get() - rotationStep));
-
         listenFor(KeyCode.X, KeyCode.UP, () -> xTranslationProperty.set(xTranslationProperty.get() + translationStep));
         listenFor(KeyCode.X, KeyCode.DOWN, () -> xTranslationProperty.set(xTranslationProperty.get() - translationStep));
         listenFor(KeyCode.Y, KeyCode.UP, () -> yTranslationProperty.set(yTranslationProperty.get() + translationStep));
         listenFor(KeyCode.Y, KeyCode.DOWN, () -> yTranslationProperty.set(yTranslationProperty.get() - translationStep));
         listenFor(KeyCode.Z, KeyCode.UP, () -> zTranslationProperty.set(zTranslationProperty.get() + translationStep));
         listenFor(KeyCode.Z, KeyCode.DOWN, () -> zTranslationProperty.set(zTranslationProperty.get() - translationStep));
-
         modelMatrix.addListener((__, ___, ____) -> repaint());
         viewMatrix.addListener((__, ___, ____) -> repaint());
-
         CURRENT_OBJ.addListener((__, ___, obj) -> {
+            vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            e -> e.getValue().stream()
+                                    .map(GeomUtils::getNormal)
+                                    .reduce(Vector3D::add)
+                                    .map(normal -> normal.divide(e.getValue().size()))
+                                    .get()
+                    ));
+            vertexWorldNormalMap.clear();
             resetStates();
-            if (nonNull(obj))
-                repaint();
+            repaint();
         });
-
         pane.setOnMousePressed(e -> {
             lastPositionX = (float) e.getX();
             lastPositionY = (float) e.getY();
@@ -171,14 +181,11 @@ public class MainController {
         });
         pane.setOnMouseDragged(this::onMouseDragged);
         pane.setOnMouseReleased(__ -> mouseDragging = false);
-
         pane.setOnScroll(e -> {
             var dy = e.getDeltaY();
-            if (Double.compare(dy, 0.0) == 0)
-                return;
-            radiusProperty.set((float) (radiusProperty.get() - dy / 20));
+            if (Double.compare(dy, 0.0) != 0)
+                radiusProperty.set((float) (radiusProperty.get() - dy / 20));
         });
-
         backgroundColorPicker.valueProperty().addListener((__, ___, color) -> {
             Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(color));
             repaint();
@@ -217,15 +224,13 @@ public class MainController {
         xTranslationProperty.set(0);
         yTranslationProperty.set(0);
         zTranslationProperty.set(0);
-
         xRotationProperty.set(0);
         yRotationProperty.set(0);
         zRotationProperty.set(0);
-
         scaleProperty.set(1);
-
         xEyeProperty.set(0);
         yEyeProperty.set(0);
+        radiusProperty.set(100);
     }
 
     void addUiNode(Node node) {
@@ -275,7 +280,6 @@ public class MainController {
     public void onMouseDragged(MouseEvent e) {
         if (!mouseDragging)
             return;
-
         xEyeProperty.set((float) e.getX());
         yEyeProperty.set((float) e.getY());
     }
@@ -319,9 +323,17 @@ public class MainController {
                 group.faceList().parallelStream().forEach(face -> {
                     var elements = face.faceElements();
 
-                    var firstOriginal = vector4D(elements[0].getVertex());
-                    var secondOriginal = vector4D(elements[1].getVertex());
-                    var thirdOriginal = vector4D(elements[2].getVertex());
+                    var firstVertex = elements[0].getVertex();
+                    var secondVertex = elements[1].getVertex();
+                    var thirdVertex = elements[2].getVertex();
+
+                    var n0 = getFromCache(firstVertex, worldMatrix);
+                    var n1 = getFromCache(secondVertex, worldMatrix);
+                    var n2 = getFromCache(thirdVertex, worldMatrix);
+
+                    var firstOriginal = vector4D(firstVertex);
+                    var secondOriginal = vector4D(secondVertex);
+                    var thirdOriginal = vector4D(thirdVertex);
 
                     var firstMvp = mvp.multiply(firstOriginal);
                     var secondMvp = mvp.multiply(secondOriginal);
@@ -343,26 +355,20 @@ public class MainController {
                     var secondMv = viewMatrix.multiply(worldMatrix).multiply(secondOriginal).to3D();
                     var thirdMv = viewMatrix.multiply(worldMatrix).multiply(thirdOriginal).to3D();
 
-                    var worldNormal = thirdWorld.subtract(firstWorld)
-                            .cross(thirdWorld.subtract(secondWorld))
-                            .normalize();
+                    // backface culling
+                    var faceNormal = firstWorld.subtract(secondWorld).cross(firstWorld.subtract(thirdWorld)).normalize();
                     var eye = eyeBinding.get().subtract(firstWorld).normalize();
-                    if (worldNormal.dot(eye) <= 0)
+                    if (faceNormal.dot(eye) <= 0)
                         return;
-
-                    var factor = (worldNormal.dot(light) * 255);
-                    if (factor <= 0)
-                        factor = 0;
-                    var intensity = (int) factor;
-                    var color = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
 
                     drawTriangleBoxing(
                             frameBuffer,
                             zBuffer,
-                            new Vector3D(firstViewport.x(), firstViewport.y(), firstMv.z()),
-                            new Vector3D(secondViewport.x(), secondViewport.y(), secondMv.z()),
-                            new Vector3D(thirdViewport.x(), thirdViewport.y(), thirdMv.z()),
-                            color
+                            new VertexNormal(new Vector3D(firstViewport.x(), firstViewport.y(), firstMv.z()), n0),
+                            new VertexNormal(new Vector3D(secondViewport.x(), secondViewport.y(), secondMv.z()), n1),
+                            new VertexNormal(new Vector3D(thirdViewport.x(), thirdViewport.y(), thirdMv.z()), n2),
+                            light,
+                            eye
                     );
                 });
                 fullBuffers.add(buffers);
@@ -372,57 +378,165 @@ public class MainController {
         });
     }
 
-    private Vector4D vector4D(Vertex vertex) {
-        return new Vector4D(vertex.getX(), vertex.getY(), vertex.getZ(), vertex.getW());
+    private Vector3D getFromCache(Vertex vertex, Matrix4D worldMatrix) {
+        var info = vertexWorldNormalMap.get(vertex);
+        if (info != null)
+            return info;
+        info = worldMatrix.multiply(vertexNormalMap.get(vertex)).normalize();
+        var putByOtherThreadJustNow = vertexWorldNormalMap.putIfAbsent(vertex, info);
+        if (putByOtherThreadJustNow != null)
+            info = putByOtherThreadJustNow;
+        return info;
+    }
+
+    private record VertexNormal(Vector3D vertex, Vector3D normal) {
     }
 
     private void drawTriangleBoxing(WritableImageView buffer,
                                     float[] zBuffer,
-                                    Vector3D t0,
-                                    Vector3D t1,
-                                    Vector3D t2,
-                                    int color) {
-        var bboxminX = W - 1f;
-        var bboxminY = H - 1f;
-        var bboxmaxX = 0f;
-        var bboxmaxY = 0f;
-        var clampX = W - 1f;
-        var clampY = H - 1f;
+                                    VertexNormal t0,
+                                    VertexNormal t1,
+                                    VertexNormal t2,
+                                    Vector3D light,
+                                    Vector3D eye) {
+        if (t0.vertex().y() > t1.vertex().y()) {
+            var temp = t0;
+            t0 = t1;
+            t1 = temp;
+        }
 
-        // 0
-        bboxminX = Math.max(0, Math.min(bboxminX, t0.x()));
-        bboxminY = Math.max(0, Math.min(bboxminY, t0.y()));
+        if (t0.vertex().y() > t2.vertex().y()) {
+            var temp = t0;
+            t0 = t2;
+            t2 = temp;
+        }
 
-        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t0.x()));
-        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t0.y()));
+        if (t1.vertex().y() > t2.vertex().y()) {
+            var temp = t1;
+            t1 = t2;
+            t2 = temp;
+        }
 
-        // 1
-        bboxminX = Math.max(0, Math.min(bboxminX, t1.x()));
-        bboxminY = Math.max(0, Math.min(bboxminY, t1.y()));
+        var topY = t2;
+        var midY = t1;
+        var lowY = t0;
 
-        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t1.x()));
-        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t1.y()));
+        if (t0.vertex().x() > t1.vertex().x()) {
+            var temp = t0;
+            t0 = t1;
+            t1 = temp;
+        }
 
-        // 2
-        bboxminX = Math.max(0, Math.min(bboxminX, t2.x()));
-        bboxminY = Math.max(0, Math.min(bboxminY, t2.y()));
+        if (t0.vertex().x() > t2.vertex().x()) {
+            var temp = t0;
+            t0 = t2;
+            t2 = temp;
+        }
 
-        bboxmaxX = Math.min(clampX, Math.max(bboxmaxX, t2.x()));
-        bboxmaxY = Math.min(clampY, Math.max(bboxmaxY, t2.y()));
+        if (t1.vertex().x() > t2.vertex().x()) {
+            var temp = t1;
+            t1 = t2;
+            t2 = temp;
+        }
 
-        for (var x = (int) bboxminX; x <= (int) bboxmaxX; x++) {
-            for (var y = (int) bboxminY; y <= (int) bboxmaxY; y++) {
-                var barycentric = barycentric(t0, t1, t2, x, y);
+        var topX = t2;
+        var midX = t1;
+        var lowX = t0;
+
+        var minX = (int) Math.max(0, lowX.vertex().x());
+        var maxX = (int) Math.min(W - 1, topX.vertex().x());
+        var minY = (int) Math.max(0, lowY.vertex().y());
+        var maxY = (int) Math.min(H - 1, topY.vertex().y());
+
+        for (var x = minX; x <= maxX; x++) {
+            for (var y = minY; y <= maxY; y++) {
+                var barycentric = barycentric(t0.vertex(), t1.vertex(), t2.vertex(), x, y);
                 if (barycentric.x() < 0 || barycentric.y() < 0 || barycentric.z() < 0)
                     continue;
 
-                var depth = t0.z() * barycentric.x() + t1.z() * barycentric.y() + t2.z() * barycentric.z();
+                var normal = getNormalInPixelInner(topY, midY, lowY, topX, midX, lowX, x, y).normalize();
+                var reflect = normal.mul(2 * light.dot(normal)).subtract(light);
+
+                var diffuseAlbedo = new Vector3D(0.5f, 0.2f, 0.7f);
+                var specularAlbedo = new Vector3D(0.7f, 0.7f, 0.7f);
+                var specularPower = 64f;
+
+                var ambient = new Vector3D(0.1f, 0.1f, 0.1f);
+                var diffuse = diffuseAlbedo.mul(Math.max(normal.dot(light), 0));
+                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eye)), specularPower));
+
+                var color = ambient.add(diffuse).add(specular);
+                var colorFx = new Color(Math.min(1.0, color.x()), Math.min(1.0, color.y()), Math.min(color.z(), 1.0), 1);
+                var argb = ColorUtils.toArgb(colorFx);
+
                 var idx = x + y * W;
+                var depth = t0.vertex().z() * barycentric.x() + t1.vertex().z() * barycentric.y() + t2.vertex().z() * barycentric.z();
                 if (zBuffer[idx] < depth) {
-                    drawPixel(buffer, x, y, color);
+                    drawPixel(buffer, x, y, argb);
                     zBuffer[idx] = depth;
                 }
             }
+        }
+    }
+
+    private static Vector3D getNormalInPixelInner(VertexNormal topY,
+                                                  VertexNormal midY,
+                                                  VertexNormal lowY,
+                                                  VertexNormal topX,
+                                                  VertexNormal midX,
+                                                  VertexNormal lowX,
+                                                  int x, int y) {
+        var totalHeight = topY.vertex().y() - lowY.vertex().y();
+        var i = y - lowY.vertex().y();
+        var mY = (int) midY.vertex().y();
+        if (y < mY) {
+            var vn1 = lowY;
+            var vn2 = lowY == lowX ? midX : lowX;
+            var vn3 = lowY == topX ? midX : topX;
+            var nA = vn1.normal().mul(vn2.vertex().y() - y)
+                    .add(vn2.normal().mul(y - vn1.vertex().y()))
+                    .divide(vn2.vertex().y() - vn1.vertex().y());
+            var nB = vn1.normal().mul(vn3.vertex().y() - y)
+                    .add(vn3.normal().mul(y - vn1.vertex().y()))
+                    .divide(vn3.vertex().y() - vn1.vertex().y());
+
+            var segmentHeight = midY.vertex().y() - lowY.vertex().y();
+            var alpha = i / totalHeight;
+            var beta = i / segmentHeight; // be careful: with above conditions no division by zero here
+            var A = lowY.vertex().add(topY.vertex().subtract(lowY.vertex()).mul(alpha));
+            var B = lowY.vertex().add(midY.vertex().subtract(lowY.vertex()).mul(beta));
+
+            if (A.x() > B.x()) {
+                var temp = A;
+                A = B;
+                B = temp;
+            }
+
+            return nA.mul(B.x() - x).add(nB.mul(x - A.x())).divide(B.x() - A.x());
+        } else {
+            var vn1 = topY;
+            var vn2 = topY == lowX ? midX : lowX;
+            var vn3 = topY == topX ? midX : topX;
+            var nA = vn1.normal().mul(y - vn2.vertex().y())
+                    .add(vn2.normal().mul(vn1.vertex().y() - y))
+                    .divide(vn1.vertex().y() - vn2.vertex().y());
+            var nB = vn1.normal().mul(y - vn3.vertex().y())
+                    .add(vn3.normal().mul(vn1.vertex().y() - y))
+                    .divide(vn1.vertex().y() - vn3.vertex().y());
+
+            var segmentHeight = topY.vertex().y() - midY.vertex().y();
+            var alpha = i / totalHeight;
+            var beta = (i - (midY.vertex().y() - lowY.vertex().y())) / segmentHeight; // be careful: with above conditions no division by zero here
+            var A = lowY.vertex().add(topY.vertex().subtract(lowY.vertex()).mul(alpha));
+            var B = midY.vertex().add(topY.vertex().subtract(midY.vertex()).mul(beta));
+
+            if (A.x() > B.x()) {
+                var temp = A;
+                A = B;
+                B = temp;
+            }
+
+            return nA.mul(B.x() - x).add(nB.mul(x - A.x())).divide(B.x() - A.x());
         }
     }
 

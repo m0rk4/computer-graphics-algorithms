@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.DoubleConsumer;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 public final class ObjFileParserImpl implements ObjFileParser {
 
@@ -45,7 +44,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
     private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN =
             Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
 
-    private static Vertex parseVertex(String line) {
+    private static Vertex parseVertex(String line, int vertexId) {
         final var coords = line
                 .substring(VERTEX_PREFIX.length())
                 .trim()
@@ -54,6 +53,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
         assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
 
         final var builder = Vertex.builder()
+                .id(vertexId)
                 .x(Float.parseFloat(coords[0]))
                 .y(Float.parseFloat(coords[1]))
                 .z(Float.parseFloat(coords[2]));
@@ -103,12 +103,17 @@ public final class ObjFileParserImpl implements ObjFileParser {
             var vertexMap = new HashMap<Integer, Vertex>();
             var vertexTextureMap = new HashMap<Integer, VertexTexture>();
             var vertexNormalMap = new HashMap<Integer, VertexNormal>();
+            var vertexFacesMap = new HashMap<Vertex, List<Face>>();
+            var lines = new ArrayList<Line>();
             var fileLines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
             var fileLinesCount = fileLines.size();
             var parsedLines = 0;
             for (var line : fileLines) {
-                if (line.startsWith(VERTEX_PREFIX))
-                    vertexMap.put(vertexMap.size() + 1, parseVertex(line));
+                if (line.startsWith(VERTEX_PREFIX)) {
+                    var vertex = parseVertex(line, vertexMap.size() + 1);
+                    vertexMap.put(vertexMap.size() + 1, vertex);
+                    vertexFacesMap.put(vertex, new ArrayList<>());
+                }
 
                 if (line.startsWith(VERTEX_TEXTURE_PREFIX))
                     vertexTextureMap.put(vertexTextureMap.size() + 1, parseVertexTexture(line));
@@ -119,14 +124,25 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 if (line.startsWith(FACE_PREFIX)) {
                     var face = parseFace(vertexMap, vertexTextureMap, vertexNormalMap, line);
                     triangulateFaceIfNeeded(faces, face);
+                    var elements = face.faceElements();
+                    for (var element : elements) {
+                        var vertex = element.getVertex();
+                        vertexFacesMap.get(vertex).add(face);
+                    }
+                    var vertexesCount = elements.length;
+                    for (var i = 0; i < vertexesCount; i++) {
+                        var from = elements[i].getVertex();
+                        var to = elements[(i + 1) % vertexesCount].getVertex();
+                        lines.add(new Line(from, to));
+                    }
                 }
 
                 parsedLines++;
                 var progress = (double) parsedLines / fileLinesCount;
                 progressConsumer.accept(progress);
             }
-            var lines = faces.stream().flatMap(this::getLines).toList();
-            return new ObjGroup(faces.toArray(new Face[0]), faces, lines);
+
+            return new ObjGroup(faces, lines, vertexFacesMap);
         } catch (IOException e) {
             e.printStackTrace();
             throw new ObjParserException(e.getMessage(), e);
@@ -147,18 +163,6 @@ public final class ObjFileParserImpl implements ObjFileParser {
                     faceElements[i],
                     faceElements[i + 1]
             }));
-    }
-
-    private Stream<Line> getLines(Face face) {
-        final var faceElements = face.faceElements();
-        final var result = new ArrayList<Line>(faceElements.length);
-        for (var i = 0; i < faceElements.length - 1; i++) {
-            final var from = faceElements[i].getVertex();
-            final var to = faceElements[i + 1].getVertex();
-            result.add(new Line(from, to));
-        }
-        result.add(new Line(faceElements[faceElements.length - 1].getVertex(), faceElements[0].getVertex()));
-        return result.stream();
     }
 
     private VertexTexture parseVertexTexture(String line) {

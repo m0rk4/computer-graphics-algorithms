@@ -30,4 +30,28 @@ public record Vector3D(float x, float y, float z) {
                 z - other.z
         );
     }
+
+    public Vector3D add(Vector3D other) {
+        return new Vector3D(
+                x + other.x,
+                y + other.y,
+                z + other.z
+        );
+    }
+
+    public Vector3D divide(float divisor) {
+        return new Vector3D(
+                x / divisor,
+                y / divisor,
+                z / divisor
+        );
+    }
+
+    public Vector3D mul(float mul) {
+        return new Vector3D(
+                x * mul,
+                y * mul,
+                z * mul
+        );
+    }
 }
