@@ -2,6 +2,7 @@ package com.morka.cga.viewer.utils;
 
 import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.Vertex;
+import com.morka.cga.parser.model.VertexNormal;
 import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
 
@@ -20,6 +21,10 @@ public final class GeomUtils {
     }
 
     public static Vector3D vector3D(Vertex vertex) {
+        return new Vector3D(vertex.getX(), vertex.getY(), vertex.getZ());
+    }
+
+    public static Vector3D vector3D(VertexNormal vertex) {
         return new Vector3D(vertex.getX(), vertex.getY(), vertex.getZ());
     }
 
