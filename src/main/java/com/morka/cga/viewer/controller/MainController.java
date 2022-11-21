@@ -8,6 +8,7 @@ import com.morka.cga.parser.service.ObjFileParserBuilder;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
 import com.morka.cga.viewer.model.Vector3D;
+import com.morka.cga.viewer.model.Vector4D;
 import com.morka.cga.viewer.utils.ColorUtils;
 import com.morka.cga.viewer.utils.GeomUtils;
 import javafx.application.Platform;
@@ -25,6 +26,7 @@ import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -43,6 +45,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.DoubleConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
@@ -52,7 +55,6 @@ import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.getViewMatrix;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
-import static javafx.beans.binding.Bindings.not;
 
 public class MainController {
     private static final Group FRAME_GROUP = new Group();
@@ -127,6 +129,19 @@ public class MainController {
     private ProgressIndicator progressIndicator;
     @FXML
     private ColorPicker backgroundColorPicker;
+    @FXML
+    private Slider ambientCoef;
+    @FXML
+    private ColorPicker ambientColorPicker;
+    @FXML
+    private Slider diffuseCoef;
+    @FXML
+    private ColorPicker diffuseColorPicker;
+    @FXML
+    private Slider specularCoef;
+    @FXML
+    private ColorPicker specularColorPicker;
+
 
     private Map<Vertex, Vector3D> vertexNormalMap;
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
@@ -191,6 +206,12 @@ public class MainController {
             Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(color));
             repaint();
         });
+        ambientColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        ambientCoef.valueProperty().addListener((__, ___, ____) -> repaint());
+        diffuseColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        diffuseCoef.valueProperty().addListener((__, ___, ____) -> repaint());
+        specularColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        specularCoef.valueProperty().addListener((__, ___, ____) -> repaint());
     }
 
     private void prepareBuffers() {
@@ -320,6 +341,9 @@ public class MainController {
 
                 var worldMatrix = this.modelMatrix.get();
                 var viewMatrix = this.viewMatrix.get();
+                var invViewport = VIEWPORT_MATRIX.invert();
+                var invProj = PROJECTION_MATRIX.invert();
+                var invView = viewMatrix.invert();
                 var mvp = PROJECTION_MATRIX.multiply(viewMatrix).multiply(worldMatrix);
                 group.faceList().parallelStream().forEach(face -> {
                     var elements = face.faceElements();
@@ -340,13 +364,21 @@ public class MainController {
                     var secondMvp = mvp.multiply(secondOriginal);
                     var thirdMvp = mvp.multiply(thirdOriginal);
 
-                    var firstMvpNormalized = firstMvp.divide(firstMvp.w());
-                    var secondMvpNormalized = secondMvp.divide(secondMvp.w());
-                    var thirdMvpNormalized = thirdMvp.divide(thirdMvp.w());
+                    var firstNdc = firstMvp.divide(firstMvp.w());
+                    var secondNdc = secondMvp.divide(secondMvp.w());
+                    var thirdNdc = thirdMvp.divide(thirdMvp.w());
 
-                    var firstViewport = VIEWPORT_MATRIX.multiply(firstMvpNormalized).to3D();
-                    var secondViewport = VIEWPORT_MATRIX.multiply(secondMvpNormalized).to3D();
-                    var thirdViewport = VIEWPORT_MATRIX.multiply(thirdMvpNormalized).to3D();
+                    var firstViewport = VIEWPORT_MATRIX.multiply(firstNdc).to3D();
+                    var secondViewport = VIEWPORT_MATRIX.multiply(secondNdc).to3D();
+                    var thirdViewport = VIEWPORT_MATRIX.multiply(thirdNdc).to3D();
+
+                    var viewportToWorldConverter = (Function<Vector3D, Vector3D>) viewport -> {
+                        var ndc = invViewport.multiply(new Vector4D(viewport.x(), viewport.y(), viewport.z(), 1f));
+                        var homView = invProj.multiply(ndc);
+                        var view = new Vector4D(homView.x() / homView.w(), homView.y() / homView.w(),
+                                homView.z() / homView.w(), 1);
+                        return invView.multiply(view).to3D();
+                    };
 
                     var firstWorld = worldMatrix.multiply(firstOriginal).to3D();
                     var secondWorld = worldMatrix.multiply(secondOriginal).to3D();
@@ -357,11 +389,16 @@ public class MainController {
                     var thirdMv = viewMatrix.multiply(worldMatrix).multiply(thirdOriginal).to3D();
 
                     // backface culling
-                    var faceNormal = firstWorld.subtract(secondWorld).cross(firstWorld.subtract(thirdWorld)).normalize();
-                    var eye = eyeBinding.get().subtract(firstWorld).normalize();
-                    if (faceNormal.dot(eye) <= 0)
+                    var eye = eyeBinding.get();
+                    var faceNormal = firstWorld
+                            .subtract(secondWorld)
+                            .cross(firstWorld.subtract(thirdWorld))
+                            .normalize();
+                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
+                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
                         return;
 
+                    // TODO: move flat lighting logic to different place
                     var factor = (faceNormal.dot(light) * 255);
                     if (factor <= 0)
                         factor = 0;
@@ -379,17 +416,8 @@ public class MainController {
                             n2,
                             light,
                             eye,
-                            flatColor
+                            viewportToWorldConverter
                     );
-//                    drawTriangleBoxing(
-//                            frameBuffer,
-//                            zBuffer,
-//                            new VertexNormal(new Vector3D(firstViewport.x(), firstViewport.y(), firstMv.z()), n0),
-//                            new VertexNormal(new Vector3D(secondViewport.x(), secondViewport.y(), secondMv.z()), n1),
-//                            new VertexNormal(new Vector3D(thirdViewport.x(), thirdViewport.y(), thirdMv.z()), n2),
-//                            light,
-//                            eye
-//                    );
                 });
                 fullBuffers.add(buffers);
             } catch (InterruptedException e) {
@@ -412,158 +440,6 @@ public class MainController {
     private record VertexNormal(Vector3D vertex, Vector3D normal) {
     }
 
-    private void drawTriangleBoxing(WritableImageView buffer,
-                                    float[] zBuffer,
-                                    VertexNormal t0,
-                                    VertexNormal t1,
-                                    VertexNormal t2,
-                                    Vector3D light,
-                                    Vector3D eye) {
-        if (t0.vertex().y() > t1.vertex().y()) {
-            var temp = t0;
-            t0 = t1;
-            t1 = temp;
-        }
-
-        if (t0.vertex().y() > t2.vertex().y()) {
-            var temp = t0;
-            t0 = t2;
-            t2 = temp;
-        }
-
-        if (t1.vertex().y() > t2.vertex().y()) {
-            var temp = t1;
-            t1 = t2;
-            t2 = temp;
-        }
-
-        var topY = t2;
-        var midY = t1;
-        var lowY = t0;
-
-        if (t0.vertex().x() > t1.vertex().x()) {
-            var temp = t0;
-            t0 = t1;
-            t1 = temp;
-        }
-
-        if (t0.vertex().x() > t2.vertex().x()) {
-            var temp = t0;
-            t0 = t2;
-            t2 = temp;
-        }
-
-        if (t1.vertex().x() > t2.vertex().x()) {
-            var temp = t1;
-            t1 = t2;
-            t2 = temp;
-        }
-
-        var topX = t2;
-        var midX = t1;
-        var lowX = t0;
-
-        var minX = (int) Math.max(0, lowX.vertex().x());
-        var maxX = (int) Math.min(W - 1, topX.vertex().x());
-        var minY = (int) Math.max(0, lowY.vertex().y());
-        var maxY = (int) Math.min(H - 1, topY.vertex().y());
-
-        var degenerateTriangle = minY == maxY;
-        if (degenerateTriangle)
-            return;
-//
-        for (var x = minX; x <= maxX; x++) {
-            for (var y = minY; y <= maxY; y++) {
-                var barycentric = barycentric(t0.vertex(), t1.vertex(), t2.vertex(), x, y);
-                if (barycentric.x() < 0 || barycentric.y() < 0 || barycentric.z() < 0)
-                    continue;
-
-                var normal = getNormalInPixelInner(topY, midY, lowY, topX, midX, lowX, x, y).normalize();
-                var reflect = normal.mul(2 * light.dot(normal)).subtract(light);
-
-                var diffuseAlbedo = new Vector3D(0.5f, 0.2f, 0.7f);
-                var specularAlbedo = new Vector3D(0.7f, 0.7f, 0.7f);
-                var specularPower = 64f;
-
-                var ambient = new Vector3D(0.1f, 0.1f, 0.1f);
-                var diffuse = diffuseAlbedo.mul(Math.max(normal.dot(light), 0));
-                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eye)), specularPower));
-
-                var color = ambient.add(diffuse).add(specular);
-                var colorFx = new Color(Math.min(1.0, color.x()), Math.min(1.0, color.y()), Math.min(color.z(), 1.0), 1);
-                var argb = ColorUtils.toArgb(colorFx);
-
-                var idx = x + y * W;
-                var depth = t0.vertex().z() * barycentric.x() + t1.vertex().z() * barycentric.y() + t2.vertex().z() * barycentric.z();
-                if (zBuffer[idx] < depth) {
-                    drawPixel(buffer, x, y, argb);
-                    zBuffer[idx] = depth;
-                }
-            }
-        }
-    }
-
-    private static Vector3D getNormalInPixelInner(VertexNormal topY,
-                                                  VertexNormal midY,
-                                                  VertexNormal lowY,
-                                                  VertexNormal topX,
-                                                  VertexNormal midX,
-                                                  VertexNormal lowX,
-                                                  int x, int y) {
-        var totalHeight = topY.vertex().y() - lowY.vertex().y();
-        var i = y - lowY.vertex().y();
-        var mY = (int) midY.vertex().y();
-        if (y < mY) {
-            var vn1 = lowY;
-            var vn2 = lowY == lowX ? midX : lowX;
-            var vn3 = lowY == topX ? midX : topX;
-            var nA = vn1.normal().mul(vn2.vertex().y() - y)
-                    .add(vn2.normal().mul(y - vn1.vertex().y()))
-                    .divide(vn2.vertex().y() - vn1.vertex().y());
-            var nB = vn1.normal().mul(vn3.vertex().y() - y)
-                    .add(vn3.normal().mul(y - vn1.vertex().y()))
-                    .divide(vn3.vertex().y() - vn1.vertex().y());
-
-            var segmentHeight = midY.vertex().y() - lowY.vertex().y();
-            var alpha = i / totalHeight;
-            var beta = i / segmentHeight; // be careful: with above conditions no division by zero here
-            var A = lowY.vertex().add(topY.vertex().subtract(lowY.vertex()).mul(alpha));
-            var B = lowY.vertex().add(midY.vertex().subtract(lowY.vertex()).mul(beta));
-
-            if (A.x() > B.x()) {
-                var temp = A;
-                A = B;
-                B = temp;
-            }
-
-            return nA.mul(B.x() - x).add(nB.mul(x - A.x())).divide(B.x() - A.x());
-        } else {
-            var vn1 = topY;
-            var vn2 = topY == lowX ? midX : lowX;
-            var vn3 = topY == topX ? midX : topX;
-            var nA = vn1.normal().mul(y - vn2.vertex().y())
-                    .add(vn2.normal().mul(vn1.vertex().y() - y))
-                    .divide(vn1.vertex().y() - vn2.vertex().y());
-            var nB = vn1.normal().mul(y - vn3.vertex().y())
-                    .add(vn3.normal().mul(vn1.vertex().y() - y))
-                    .divide(vn1.vertex().y() - vn3.vertex().y());
-
-            var segmentHeight = topY.vertex().y() - midY.vertex().y();
-            var alpha = i / totalHeight;
-            var beta = (i - (midY.vertex().y() - lowY.vertex().y())) / segmentHeight; // be careful: with above conditions no division by zero here
-            var A = lowY.vertex().add(topY.vertex().subtract(lowY.vertex()).mul(alpha));
-            var B = midY.vertex().add(topY.vertex().subtract(midY.vertex()).mul(beta));
-
-            if (A.x() > B.x()) {
-                var temp = A;
-                A = B;
-                B = temp;
-            }
-
-            return nA.mul(B.x() - x).add(nB.mul(x - A.x())).divide(B.x() - A.x());
-        }
-    }
-
     private void drawTriangle(WritableImageView buffer,
                               float[] zBuffer,
                               Vector3D t0,
@@ -574,7 +450,7 @@ public class MainController {
                               Vector3D n2,
                               Vector3D light,
                               Vector3D eye,
-                              int testColor) {
+                              Function<Vector3D, Vector3D> toWorld) {
         if (t0.y() > t1.y()) {
             var temp = t0;
             t0 = t1;
@@ -629,6 +505,7 @@ public class MainController {
             }
 
             var y = t0y + i;
+
             Vector3D nA;
             Vector3D nB;
             if (isSecondHalf) {
@@ -648,7 +525,14 @@ public class MainController {
                 nA = n0.mul(left.y() - y).add(leftN.mul(y - t0y)).divide(left.y() - t0y);
                 nB = n0.mul(right.y() - y).add(rightN.mul(y - t0y)).divide(right.y() - t0y);
             }
+
             for (var x = Ax; x <= Bx; x++) {
+                var barycentric = barycentric(t0, t1, t2, x, y);
+                if (barycentric.x() < 0 || barycentric.x() > 1 ||
+                        barycentric.y() < 0 || barycentric.y() > 1 ||
+                        barycentric.z() < 0 || barycentric.z() > 1)
+                    continue;
+
                 Vector3D normal;
                 if (i == 0) {
                     if (Ax == Bx) {
@@ -702,19 +586,22 @@ public class MainController {
                         }
                     }
                 }
-                normal = normal.normalize();
 
-                var barycentric = barycentric(t0, t1, t2, x, y);
-                var depth = t0.z() * barycentric.x() + t1.z() * barycentric.y() + t2.z() * barycentric.z();
+                var z = t0.z() * barycentric.x() + t1.z() * barycentric.y() + t2.z() * barycentric.z();
+                Vector3D pixelWorld = toWorld.apply(new Vector3D(x, y, z));
+
+                normal = normal.normalize();
+                light = light.subtract(pixelWorld).normalize();
+                eye = eye.subtract(pixelWorld).normalize();
 
                 var reflect = normal.mul(2 * light.dot(normal)).subtract(light);
 
-                var diffuseAlbedo = new Vector3D(0.5f, 0.2f, 0.7f);
-                var specularAlbedo = new Vector3D(0.7f, 0.7f, 0.7f);
-                var specularPower = 128f;
+                var ambient = ColorUtils.toVector(ambientColorPicker.getValue(), ambientCoef.getValue());
+                var diffuseAlbedo = ColorUtils.toVector(diffuseColorPicker.getValue(), diffuseCoef.getValue());
+                var specularAlbedo = ColorUtils.toVector(specularColorPicker.getValue(), specularCoef.getValue());
+                var specularPower = 128;
 
-                var ambient = new Vector3D(0.1f, 0.1f, 0.1f);
-                var diffuse = diffuseAlbedo.mul(Math.max(normal.dot(light), 0));
+                var diffuse = diffuseAlbedo.mul(Math.max(-normal.dot(light), 0));
                 var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eye)), specularPower));
 
                 var color = ambient.add(diffuse).add(specular);
@@ -722,75 +609,20 @@ public class MainController {
                 var argb = ColorUtils.toArgb(colorFx);
 
                 var idx = x + y * W;
-                if (zBuffer[idx] < depth) {
+                if (zBuffer[idx] < z) {
                     drawPixel(buffer, x, y, argb);
-                    zBuffer[idx] = depth;
+                    zBuffer[idx] = z;
                 }
             }
         }
     }
 
-    private static Vector3D getNormal(boolean isSecondHalf,
-                                      int Ax,
-                                      int Bx,
-                                      VertexNormal v0,
-                                      VertexNormal v1,
-                                      VertexNormal v2,
-                                      int x, int y) {
-        if (isSecondHalf) {
-            var vn1 = v2;
-            var firstLeft = v1.vertex().x() < v0.vertex().x();
-            var vn2 = firstLeft ? v1 : v0;
-            var vn3 = firstLeft ? v0 : v1;
-
-            var vn1Y = (int) vn1.vertex().y();
-            var vn2Y = (int) vn2.vertex().y();
-            var vn3Y = (int) vn3.vertex().y();
-
-            if (vn1Y == vn3Y || vn1Y == vn2Y)
-                System.exit(1);
-            var nA = vn1.normal()
-                    .mul(y - vn2Y)
-                    .add(vn2.normal().mul(vn1Y - y))
-                    .divide(vn1Y - vn2Y);
-
-            var nB = vn1.normal().mul(y - vn3Y)
-                    .add(vn3.normal().mul(vn1Y - y))
-                    .divide(vn1Y - vn3Y);
-
-            return nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
-        } else {
-            var vn1 = v0;
-            var firstLeft = v1.vertex().x() < v2.vertex().x();
-            var vn2 = firstLeft ? v1 : v2;
-            var vn3 = firstLeft ? v2 : v1;
-
-            var vn1Y = (int) vn1.vertex().y();
-            var vn2Y = (int) vn2.vertex().y();
-            var vn3Y = (int) vn3.vertex().y();
-
-            if (vn1Y == vn3Y || vn1Y == vn2Y)
-                System.exit(1);
-
-            var nA = vn1.normal()
-                    .mul(vn2Y - y)
-                    .add(vn2.normal().mul(y - vn1Y))
-                    .divide(vn2Y - vn1Y);
-            var nB = vn1.normal()
-                    .mul(vn3Y - y)
-                    .add(vn3.normal().mul(y - vn1Y))
-                    .divide(vn3Y - vn1Y);
-            return nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
-        }
-    }
-
-    private Vector3D barycentric(Vector3D A, Vector3D B, Vector3D C, int x, int y) {
-        var first = new Vector3D(C.x() - A.x(), B.x() - A.x(), A.x() - x);
-        var second = new Vector3D(C.y() - A.y(), B.y() - A.y(), A.y() - y);
-        var u = first.cross(second);
-        if (Math.abs(u.z()) > 1e-2)
-            return new Vector3D(1.f - (u.x() + u.y()) / u.z(), u.y() / u.z(), u.x() / u.z());
-        return new Vector3D(-1, 1, 1);
+    private Vector3D barycentric(Vector3D v1, Vector3D v2, Vector3D v3, int x, int y) {
+        var triangleArea = (v1.y() - v3.y()) * (v2.x() - v3.x()) + (v2.y() - v3.y()) * (v3.x() - v1.x());
+        var b1 = ((y - v3.y()) * (v2.x() - v3.x()) + (v2.y() - v3.y()) * (v3.x() - x)) / triangleArea;
+        var b2 = ((y - v1.y()) * (v3.x() - v1.x()) + (v3.y() - v1.y()) * (v1.x() - x)) / triangleArea;
+        var b3 = ((y - v2.y()) * (v1.x() - v2.x()) + (v1.y() - v2.y()) * (v2.x() - x)) / triangleArea;
+        return new Vector3D(b1, b2, b3);
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
