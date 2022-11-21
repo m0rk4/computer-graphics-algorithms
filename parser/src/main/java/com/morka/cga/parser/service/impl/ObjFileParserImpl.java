@@ -44,7 +44,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
     private static final Pattern FACE_ELEMENT_VERTEX_TEXTURE_NORMAL_PATTERN =
             Pattern.compile("^[1-9][0-9+]*/[1-9][0-9+]*/[1-9][0-9+]*$");
 
-    private static Vertex parseVertex(String line, int vertexId) {
+    private static Vertex parseVertex(String line) {
         final var coords = line
                 .substring(VERTEX_PREFIX.length())
                 .trim()
@@ -53,7 +53,6 @@ public final class ObjFileParserImpl implements ObjFileParser {
         assert coords.length >= 3 : "Vertex didn't follow the pattern: v x y z [w]\nFound: %s".formatted(line);
 
         final var builder = Vertex.builder()
-                .id(vertexId)
                 .x(Float.parseFloat(coords[0]))
                 .y(Float.parseFloat(coords[1]))
                 .z(Float.parseFloat(coords[2]));
@@ -69,7 +68,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             final var relativeIndex = Integer.parseInt(faceElements[i]);
             final var index = getFaceElementIndex(vertexMap.size(), relativeIndex);
             final var vertex = vertexMap.get(index);
-            final var faceElement = FaceElement.builder().vertex(vertex).build();
+            final var faceElement = FaceElement.builder().id(index).vertex(vertex).build();
             elements[i] = faceElement;
         }
         return new Face(elements);
@@ -84,6 +83,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
             final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
             final var element = FaceElement.builder()
+                    .id(vertexNumber)
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
                     .build();
@@ -103,17 +103,14 @@ public final class ObjFileParserImpl implements ObjFileParser {
             var vertexMap = new HashMap<Integer, Vertex>();
             var vertexTextureMap = new HashMap<Integer, VertexTexture>();
             var vertexNormalMap = new HashMap<Integer, VertexNormal>();
-            var vertexFacesMap = new HashMap<Vertex, List<Face>>();
+            var vertexFacesMap = new HashMap<FaceElement, List<Face>>();
             var lines = new ArrayList<Line>();
             var fileLines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
             var fileLinesCount = fileLines.size();
             var parsedLines = 0;
             for (var line : fileLines) {
-                if (line.startsWith(VERTEX_PREFIX)) {
-                    var vertex = parseVertex(line, vertexMap.size() + 1);
-                    vertexMap.put(vertexMap.size() + 1, vertex);
-                    vertexFacesMap.put(vertex, new ArrayList<>());
-                }
+                if (line.startsWith(VERTEX_PREFIX))
+                    vertexMap.put(vertexMap.size() + 1, parseVertex(line));
 
                 if (line.startsWith(VERTEX_TEXTURE_PREFIX))
                     vertexTextureMap.put(vertexTextureMap.size() + 1, parseVertexTexture(line));
@@ -126,9 +123,10 @@ public final class ObjFileParserImpl implements ObjFileParser {
                     triangulateFaceIfNeeded(faces, face);
                     var elements = face.faceElements();
                     for (var element : elements) {
-                        var vertex = element.getVertex();
-                        vertexFacesMap.get(vertex).add(face);
+                        vertexFacesMap.computeIfAbsent(element, k -> new ArrayList<>());
+                        vertexFacesMap.get(element).add(face);
                     }
+
                     var vertexesCount = elements.length;
                     for (var i = 0; i < vertexesCount; i++) {
                         var from = elements[i].getVertex();
@@ -206,7 +204,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
                 .split(SPACES_REGEX);
 
         assert faceElementsStringified.length >= 3
-                : "There are should be at least 3 face elements.\nFound: %s".formatted(line);
+                : "There are should be at least 3 faces elements.\nFound: %s".formatted(line);
 
         if (FACE_ELEMENT_VERTEX_PATTERN.matcher(faceElementsStringified[0]).matches())
             return parseFaceFromVertexesList(vertexMap, faceElementsStringified);
@@ -232,6 +230,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             final var vertexNumber = getFaceElementIndex(vertexMap.size(), Integer.parseInt(items[0]));
             final var vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[1]));
             final var element = FaceElement.builder()
+                    .id(vertexNumber)
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexNormal(vertexNormalMap.get(vertexNormalNumber))
                     .build();
@@ -251,6 +250,7 @@ public final class ObjFileParserImpl implements ObjFileParser {
             final var vertexTextureNumber = getFaceElementIndex(vertexTextureMap.size(), Integer.parseInt(items[1]));
             final var vertexNormalNumber = getFaceElementIndex(vertexNormalMap.size(), Integer.parseInt(items[2]));
             final FaceElement element = FaceElement.builder()
+                    .id(vertexNumber)
                     .vertex(vertexMap.get(vertexNumber))
                     .vertexTexture(vertexTextureMap.get(vertexTextureNumber))
                     .vertexNormal(vertexNormalMap.get(vertexNormalNumber))

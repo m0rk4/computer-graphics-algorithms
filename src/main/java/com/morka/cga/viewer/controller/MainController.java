@@ -177,15 +177,10 @@ public class MainController {
         modelMatrix.addListener((__, ___, ____) -> repaint());
         viewMatrix.addListener((__, ___, ____) -> repaint());
         CURRENT_OBJ.addListener((__, ___, obj) -> {
-            vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream()
-                    .collect(Collectors.toMap(
-                            Map.Entry::getKey,
-                            e -> e.getValue().stream()
-                                    .map(GeomUtils::getNormal)
-                                    .reduce(Vector3D::add)
-                                    .map(normal -> normal.divide(e.getValue().size()))
-                                    .get()
-                    ));
+            vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
+                    e -> e.getKey().getVertex(),
+                    e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue())
+            ));
             vertexWorldNormalMap.clear();
             resetStates();
             repaint();
@@ -345,7 +340,7 @@ public class MainController {
                 var invProj = PROJECTION_MATRIX.invert();
                 var invView = viewMatrix.invert();
                 var mvp = PROJECTION_MATRIX.multiply(viewMatrix).multiply(worldMatrix);
-                group.faceList().parallelStream().forEach(face -> {
+                group.faces().parallelStream().forEach(face -> {
                     var elements = face.faceElements();
 
                     var firstVertex = elements[0].getVertex();
@@ -390,20 +385,20 @@ public class MainController {
 
                     // backface culling
                     var eye = eyeBinding.get();
-                    var faceNormal = firstWorld
-                            .subtract(secondWorld)
-                            .cross(firstWorld.subtract(thirdWorld))
-                            .normalize();
-                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
-                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
-                        return;
+//                    var faceNormal = firstWorld
+//                            .subtract(secondWorld)
+//                            .cross(firstWorld.subtract(thirdWorld))
+//                            .normalize();
+//                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
+//                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
+//                        return;
 
                     // TODO: move flat lighting logic to different place
-                    var factor = (faceNormal.dot(light) * 255);
-                    if (factor <= 0)
-                        factor = 0;
-                    var intensity = (int) factor;
-                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
+//                    var factor = (faceNormal.dot(light) * 255);
+//                    if (factor <= 0)
+//                        factor = 0;
+//                    var intensity = (int) factor;
+//                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
 
                     drawTriangle(
                             frameBuffer,
@@ -485,9 +480,9 @@ public class MainController {
         var t2x = Math.min(Math.max(0, (int) t2.x()), W - 1);
         var t1x = Math.min(Math.max(0, (int) t1.x()), W - 1);
         var t0x = Math.min(Math.max(0, (int) t0.x()), W - 1);
-        var degenerateTriangle = t0y == t1y && t0y == t2y;
-        if (degenerateTriangle)
-            return;
+//        var degenerateTriangle = t0y == t1y && t0y == t2y;
+//        if (degenerateTriangle)
+//            return;
 
         var totalHeight = t2y - t0y;
         for (var i = 0; i < totalHeight; i++) {

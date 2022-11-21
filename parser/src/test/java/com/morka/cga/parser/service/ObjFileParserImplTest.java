@@ -21,6 +21,6 @@ public class ObjFileParserImplTest {
         final var group = parser.parse(new File(resource.toURI()), v -> {
         });
 
-        assertEquals(12, group.faceList().size());
+        assertEquals(12, group.faces().size());
     }
 }
