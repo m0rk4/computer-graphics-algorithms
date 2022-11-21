@@ -9,13 +9,13 @@ public record Matrix4D(float[][] contents) {
     }
 
     public Matrix4D multiply(Matrix4D other) {
-        final var target = new Matrix4D(new float[4][4]);
-        final var firstMatrix = other.contents();
-        final var targetMatrix = target.contents();
-        for (int row = 0; row < SIDE_LENGTH; row++) {
-            for (int col = 0; col < SIDE_LENGTH; col++) {
+        var target = new Matrix4D(new float[4][4]);
+        var firstMatrix = other.contents();
+        var targetMatrix = target.contents();
+        for (var row = 0; row < SIDE_LENGTH; row++) {
+            for (var col = 0; col < SIDE_LENGTH; col++) {
                 targetMatrix[row][col] = 0;
-                for (int k = 0; k < SIDE_LENGTH; k++)
+                for (var k = 0; k < SIDE_LENGTH; k++)
                     targetMatrix[row][col] += contents[row][k] * firstMatrix[k][col];
             }
         }
@@ -42,5 +42,62 @@ public record Matrix4D(float[][] contents) {
         var yy = contents[1][0] * x + contents[1][1] * y + contents[1][2] * z;
         var zz = contents[2][0] * x + contents[2][1] * y + contents[2][2] * z;
         return new Vector3D(xx, yy, zz);
+    }
+
+    public Matrix4D invert() {
+        float[][] val = contents();
+        float det = val[3][0] * val[2][1] * val[1][2] * val[0][3] - val[2][0] * val[3][1] * val[1][2] * val[0][3]
+                - val[3][0] * val[1][1] * val[2][2] * val[0][3] + val[1][0] * val[3][1] * val[2][2] * val[0][3]
+                + val[2][0] * val[1][1] * val[3][2] * val[0][3] - val[1][0] * val[2][1] * val[3][2] * val[0][3]
+                - val[3][0] * val[2][1] * val[0][2] * val[1][3] + val[2][0] * val[3][1] * val[0][2] * val[1][3]
+                + val[3][0] * val[0][1] * val[2][2] * val[1][3] - val[0][0] * val[3][1] * val[2][2] * val[1][3]
+                - val[2][0] * val[0][1] * val[3][2] * val[1][3] + val[0][0] * val[2][1] * val[3][2] * val[1][3]
+                + val[3][0] * val[1][1] * val[0][2] * val[2][3] - val[1][0] * val[3][1] * val[0][2] * val[2][3]
+                - val[3][0] * val[0][1] * val[1][2] * val[2][3] + val[0][0] * val[3][1] * val[1][2] * val[2][3]
+                + val[1][0] * val[0][1] * val[3][2] * val[2][3] - val[0][0] * val[1][1] * val[3][2] * val[2][3]
+                - val[2][0] * val[1][1] * val[0][2] * val[3][3] + val[1][0] * val[2][1] * val[0][2] * val[3][3]
+                + val[2][0] * val[0][1] * val[1][2] * val[3][3] - val[0][0] * val[2][1] * val[1][2] * val[3][3]
+                - val[1][0] * val[0][1] * val[2][2] * val[3][3] + val[0][0] * val[1][1] * val[2][2] * val[3][3];
+        if (det == 0f)
+            throw new RuntimeException("non-invertible matrix");
+        float m00 = val[1][2] * val[2][3] * val[3][1] - val[1][3] * val[2][2] * val[3][1] + val[1][3] * val[2][1] * val[3][2]
+                - val[1][1] * val[2][3] * val[3][2] - val[1][2] * val[2][1] * val[3][3] + val[1][1] * val[2][2] * val[3][3];
+        float m01 = val[0][3] * val[2][2] * val[3][1] - val[0][2] * val[2][3] * val[3][1] - val[0][3] * val[2][1] * val[3][2]
+                + val[0][1] * val[2][3] * val[3][2] + val[0][2] * val[2][1] * val[3][3] - val[0][1] * val[2][2] * val[3][3];
+        float m02 = val[0][2] * val[1][3] * val[3][1] - val[0][3] * val[1][2] * val[3][1] + val[0][3] * val[1][1] * val[3][2]
+                - val[0][1] * val[1][3] * val[3][2] - val[0][2] * val[1][1] * val[3][3] + val[0][1] * val[1][2] * val[3][3];
+        float m03 = val[0][3] * val[1][2] * val[2][1] - val[0][2] * val[1][3] * val[2][1] - val[0][3] * val[1][1] * val[2][2]
+                + val[0][1] * val[1][3] * val[2][2] + val[0][2] * val[1][1] * val[2][3] - val[0][1] * val[1][2] * val[2][3];
+        float m10 = val[1][3] * val[2][2] * val[3][0] - val[1][2] * val[2][3] * val[3][0] - val[1][3] * val[2][0] * val[3][2]
+                + val[1][0] * val[2][3] * val[3][2] + val[1][2] * val[2][0] * val[3][3] - val[1][0] * val[2][2] * val[3][3];
+        float m11 = val[0][2] * val[2][3] * val[3][0] - val[0][3] * val[2][2] * val[3][0] + val[0][3] * val[2][0] * val[3][2]
+                - val[0][0] * val[2][3] * val[3][2] - val[0][2] * val[2][0] * val[3][3] + val[0][0] * val[2][2] * val[3][3];
+        float m12 = val[0][3] * val[1][2] * val[3][0] - val[0][2] * val[1][3] * val[3][0] - val[0][3] * val[1][0] * val[3][2]
+                + val[0][0] * val[1][3] * val[3][2] + val[0][2] * val[1][0] * val[3][3] - val[0][0] * val[1][2] * val[3][3];
+        float m13 = val[0][2] * val[1][3] * val[2][0] - val[0][3] * val[1][2] * val[2][0] + val[0][3] * val[1][0] * val[2][2]
+                - val[0][0] * val[1][3] * val[2][2] - val[0][2] * val[1][0] * val[2][3] + val[0][0] * val[1][2] * val[2][3];
+        float m20 = val[1][1] * val[2][3] * val[3][0] - val[1][3] * val[2][1] * val[3][0] + val[1][3] * val[2][0] * val[3][1]
+                - val[1][0] * val[2][3] * val[3][1] - val[1][1] * val[2][0] * val[3][3] + val[1][0] * val[2][1] * val[3][3];
+        float m21 = val[0][3] * val[2][1] * val[3][0] - val[0][1] * val[2][3] * val[3][0] - val[0][3] * val[2][0] * val[3][1]
+                + val[0][0] * val[2][3] * val[3][1] + val[0][1] * val[2][0] * val[3][3] - val[0][0] * val[2][1] * val[3][3];
+        float m22 = val[0][1] * val[1][3] * val[3][0] - val[0][3] * val[1][1] * val[3][0] + val[0][3] * val[1][0] * val[3][1]
+                - val[0][0] * val[1][3] * val[3][1] - val[0][1] * val[1][0] * val[3][3] + val[0][0] * val[1][1] * val[3][3];
+        float m23 = val[0][3] * val[1][1] * val[2][0] - val[0][1] * val[1][3] * val[2][0] - val[0][3] * val[1][0] * val[2][1]
+                + val[0][0] * val[1][3] * val[2][1] + val[0][1] * val[1][0] * val[2][3] - val[0][0] * val[1][1] * val[2][3];
+        float m30 = val[1][2] * val[2][1] * val[3][0] - val[1][1] * val[2][2] * val[3][0] - val[1][2] * val[2][0] * val[3][1]
+                + val[1][0] * val[2][2] * val[3][1] + val[1][1] * val[2][0] * val[3][2] - val[1][0] * val[2][1] * val[3][2];
+        float m31 = val[0][1] * val[2][2] * val[3][0] - val[0][2] * val[2][1] * val[3][0] + val[0][2] * val[2][0] * val[3][1]
+                - val[0][0] * val[2][2] * val[3][1] - val[0][1] * val[2][0] * val[3][2] + val[0][0] * val[2][1] * val[3][2];
+        float m32 = val[0][2] * val[1][1] * val[3][0] - val[0][1] * val[1][2] * val[3][0] - val[0][2] * val[1][0] * val[3][1]
+                + val[0][0] * val[1][2] * val[3][1] + val[0][1] * val[1][0] * val[3][2] - val[0][0] * val[1][1] * val[3][2];
+        float m33 = val[0][1] * val[1][2] * val[2][0] - val[0][2] * val[1][1] * val[2][0] + val[0][2] * val[1][0] * val[2][1]
+                - val[0][0] * val[1][2] * val[2][1] - val[0][1] * val[1][0] * val[2][2] + val[0][0] * val[1][1] * val[2][2];
+        float invDet = 1.0f / det;
+        return new Matrix4D(new float[][]{
+                {m00 * invDet, m01 * invDet, m02 * invDet, m03 * invDet},
+                {m10 * invDet, m11 * invDet, m12 * invDet, m13 * invDet},
+                {m20 * invDet, m21 * invDet, m22 * invDet, m23 * invDet},
+                {m30 * invDet, m31 * invDet, m32 * invDet, m33 * invDet},
+        });
     }
 }
