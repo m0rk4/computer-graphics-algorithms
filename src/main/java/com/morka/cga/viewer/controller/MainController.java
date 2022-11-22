@@ -31,6 +31,7 @@ import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
@@ -60,8 +61,8 @@ import static javafx.beans.binding.Bindings.createObjectBinding;
 public class MainController {
     private static final Group FRAME_GROUP = new Group();
     private static final ObservableList<Node> FRAME_NODES = FRAME_GROUP.getChildren();
-    private static final int W = 1280;
-    private static final int H = 690;
+    private static final int W = 1160;
+    private static final int H = 680;
     private static final int BUFFER_SIZE = 3;
     private static final int[] BACKGROUND_COLOR_ARRAY = new int[W * H];
     private static final float[] Z_BUFFER_INIT_ARRAY = new float[W * H];
@@ -111,6 +112,7 @@ public class MainController {
             translationBinding, scaleBinding, rotationBinding
     );
     private final Vector3D light = new Vector3D(0, 0, 1);
+    private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
     private float lastPositionX;
     private float lastPositionY;
     private double lastTheta = 0;
@@ -123,7 +125,6 @@ public class MainController {
             () -> getViewMatrix(eyeBinding.get()),
             eyeBinding
     );
-
     @FXML
     private BorderPane pane;
     @FXML
@@ -142,11 +143,7 @@ public class MainController {
     private Slider specularCoef;
     @FXML
     private ColorPicker specularColorPicker;
-
-
     private Map<FaceElement, Vector3D> vertexNormalMap;
-    private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
-
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
     private long lastProgressUpdateTimestamp = System.nanoTime();
@@ -156,7 +153,7 @@ public class MainController {
     }
 
     @FXML
-    protected void initialize() {
+    void initialize() {
         prepareBuffers();
         var rotationStep = (float) Math.PI / 32.0f;
         var translationStep = 1;
@@ -177,31 +174,12 @@ public class MainController {
         listenFor(KeyCode.Z, KeyCode.DOWN, () -> zTranslationProperty.set(zTranslationProperty.get() - translationStep));
         modelMatrix.addListener((__, ___, ____) -> repaint());
         viewMatrix.addListener((__, ___, ____) -> repaint());
-        CURRENT_OBJ.addListener((__, ___, obj) -> {
-            vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue())
-            ));
-            vertexWorldNormalMap.clear();
-            resetStates();
-            repaint();
-        });
-        pane.setOnMousePressed(e -> {
-            lastPositionX = (float) e.getX();
-            lastPositionY = (float) e.getY();
-            mouseDragging = true;
-        });
+        CURRENT_OBJ.addListener((__, ___, obj) -> onObjChanged(obj));
+        pane.setOnMousePressed(this::onMousePressed);
         pane.setOnMouseDragged(this::onMouseDragged);
-        pane.setOnMouseReleased(__ -> mouseDragging = false);
-        pane.setOnScroll(e -> {
-            var dy = e.getDeltaY();
-            if (Double.compare(dy, 0.0) != 0)
-                radiusProperty.set((float) (radiusProperty.get() - dy / 20));
-        });
-        backgroundColorPicker.valueProperty().addListener((__, ___, color) -> {
-            Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(color));
-            repaint();
-        });
+        pane.setOnMouseReleased(e -> mouseDragging = false);
+        pane.setOnScroll(this::onScroll);
+        backgroundColorPicker.valueProperty().addListener((__, ___, color) -> onBackgroundColorChanged(color));
         ambientColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
         ambientCoef.valueProperty().addListener((__, ___, ____) -> repaint());
         diffuseColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
@@ -210,13 +188,21 @@ public class MainController {
         specularCoef.valueProperty().addListener((__, ___, ____) -> repaint());
     }
 
-    private void prepareBuffers() {
-        Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(backgroundColorPicker.getValue()));
-        Arrays.fill(Z_BUFFER_INIT_ARRAY, Float.NEGATIVE_INFINITY);
-        for (var i = 0; i < BUFFER_SIZE; i++) {
-            var buffer = new WritableImageView(W, H);
-            var zBuffer = new float[W * H];
-            emptyBuffers.add(new FrameAndZBuffers(buffer, zBuffer));
+    @FXML
+    void onFileOpen() {
+        pane.requestFocus();
+        var fileChooser = new FileChooser();
+        var filter = new FileChooser.ExtensionFilter("Wavefont OBJ (*.obj)", "*.obj");
+        fileChooser.getExtensionFilters().add(filter);
+        var file = fileChooser.showOpenDialog(null);
+        if (nonNull(file)) {
+            pane.setCenter(progressIndicator);
+            CompletableFuture.supplyAsync(() -> parseObjAndUpdateProgress(file)).thenAccept(objOpt ->
+                    objOpt.ifPresent(obj -> Platform.runLater(() -> {
+                        progressIndicator.setProgress(0);
+                        pane.setCenter(FRAME_GROUP);
+                        CURRENT_OBJ.set(obj);
+                    })));
         }
     }
 
@@ -238,6 +224,50 @@ public class MainController {
         currentBuffer = buffers;
     }
 
+    private void prepareBuffers() {
+        Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(backgroundColorPicker.getValue()));
+        Arrays.fill(Z_BUFFER_INIT_ARRAY, Float.NEGATIVE_INFINITY);
+        for (var i = 0; i < BUFFER_SIZE; i++) {
+            var buffer = new WritableImageView(W, H);
+            var zBuffer = new float[W * H];
+            emptyBuffers.add(new FrameAndZBuffers(buffer, zBuffer));
+        }
+    }
+
+    private void onMousePressed(MouseEvent e) {
+        lastPositionX = (float) e.getX();
+        lastPositionY = (float) e.getY();
+        mouseDragging = true;
+    }
+
+    private void onScroll(ScrollEvent e) {
+        var dy = e.getDeltaY();
+        if (Double.compare(dy, 0.0) != 0)
+            radiusProperty.set((float) (radiusProperty.get() - dy / 20));
+    }
+
+    private void onBackgroundColorChanged(Color color) {
+        Arrays.fill(BACKGROUND_COLOR_ARRAY, ColorUtils.toArgb(color));
+        repaint();
+    }
+
+    private void onObjChanged(ObjGroup obj) {
+        vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
+                Map.Entry::getKey,
+                e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue())
+        ));
+        vertexWorldNormalMap.clear();
+        resetStates();
+        repaint();
+    }
+
+    private void onMouseDragged(MouseEvent e) {
+        if (!mouseDragging)
+            return;
+        xEyeProperty.set((float) e.getX());
+        yEyeProperty.set((float) e.getY());
+    }
+
     private void resetStates() {
         xTranslationProperty.set(0);
         yTranslationProperty.set(0);
@@ -251,11 +281,11 @@ public class MainController {
         radiusProperty.set(100);
     }
 
-    void addUiNode(Node node) {
+    private void addUiNode(Node node) {
         FRAME_NODES.add(node);
     }
 
-    void removeUiNode(Node node) {
+    private void removeUiNode(Node node) {
         FRAME_NODES.remove(node);
     }
 
@@ -295,13 +325,6 @@ public class MainController {
             KEYS.get(code).set(false);
     }
 
-    public void onMouseDragged(MouseEvent e) {
-        if (!mouseDragging)
-            return;
-        xEyeProperty.set((float) e.getX());
-        yEyeProperty.set((float) e.getY());
-    }
-
     private Vector3D getEyeVector(float posX, float posY, float radius) {
         var dx = lastPositionX - posX;
         var dy = posY - lastPositionY;
@@ -331,11 +354,11 @@ public class MainController {
             try {
                 var buffers = emptyBuffers.take();
                 var frameBuffer = buffers.frameBuffer();
-                frameBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
                 var zBuffer = buffers.zBuffer();
+                frameBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
                 System.arraycopy(Z_BUFFER_INIT_ARRAY, 0, zBuffer, 0, zBuffer.length);
 
-                var worldMatrix = this.modelMatrix.get();
+                var worldMatrix = modelMatrix.get();
                 var viewMatrix = this.viewMatrix.get();
                 var invViewport = VIEWPORT_MATRIX.invert();
                 var invProj = PROJECTION_MATRIX.invert();
@@ -348,9 +371,9 @@ public class MainController {
                     var secondVertex = elements[1].getVertex();
                     var thirdVertex = elements[2].getVertex();
 
-                    var n0 = getFromCache(elements[0], worldMatrix);
-                    var n1 = getFromCache(elements[1], worldMatrix);
-                    var n2 = getFromCache(elements[2], worldMatrix);
+                    var n0 = computeWorldNormalIfAbsent(elements[0], worldMatrix);
+                    var n1 = computeWorldNormalIfAbsent(elements[1], worldMatrix);
+                    var n2 = computeWorldNormalIfAbsent(elements[2], worldMatrix);
 
                     var firstOriginal = vector4D(firstVertex);
                     var secondOriginal = vector4D(secondVertex);
@@ -395,11 +418,11 @@ public class MainController {
                         return;
 
                     // TODO: move flat lighting logic to different place
-//                    var factor = (faceNormal.dot(light) * 255);
-//                    if (factor <= 0)
-//                        factor = 0;
-//                    var intensity = (int) factor;
-//                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
+                    var factor = (faceNormal.dot(light) * 255);
+                    if (factor <= 0)
+                        factor = 0;
+                    var intensity = (int) factor;
+                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
 
                     drawTriangle(
                             frameBuffer,
@@ -422,7 +445,7 @@ public class MainController {
         });
     }
 
-    private Vector3D getFromCache(FaceElement vertex, Matrix4D worldMatrix) {
+    private Vector3D computeWorldNormalIfAbsent(FaceElement vertex, Matrix4D worldMatrix) {
         var info = vertexWorldNormalMap.get(vertex.getVertex());
         if (info != null)
             return info;
@@ -448,6 +471,7 @@ public class MainController {
             var temp = t0;
             t0 = t1;
             t1 = temp;
+
             temp = n0;
             n0 = n1;
             n1 = temp;
@@ -457,6 +481,7 @@ public class MainController {
             var temp = t0;
             t0 = t2;
             t2 = temp;
+
             temp = n0;
             n0 = n2;
             n2 = temp;
@@ -466,6 +491,7 @@ public class MainController {
             var temp = t1;
             t1 = t2;
             t2 = temp;
+
             temp = n1;
             n1 = n2;
             n2 = temp;
@@ -484,128 +510,100 @@ public class MainController {
             return;
 
         var totalHeight = t2y - t0y;
+        var d12y = t1.y() - t2.y();
+        var d12x = t1.x() - t2.x();
+        var d20y = t2.y() - t0.y();
+        var d01y = t0.y() - t1.y();
+        var d01x = t0.x() - t1.x();
+        var d20x = t2.x() - t0.x();
+        var triangleArea = -d20y * d12x + d12y * d20x;
+
+        var t10 = t1.subtract(t0);
+        var t20 = t2.subtract(t0);
+        var isFirstVertexLeft = t10.x() * t20.y() - t10.y() * t20.x() <= 0;
+
+        // todo: Can be moved even higher
+        var ambient = ColorUtils.toVector(ambientColorPicker.getValue(), ambientCoef.getValue());
+        var diffuseAlbedo = ColorUtils.toVector(diffuseColorPicker.getValue(), diffuseCoef.getValue());
+        var specularAlbedo = ColorUtils.toVector(specularColorPicker.getValue(), specularCoef.getValue());
+        var specularPower = 128;
+
         for (var i = 0; i < totalHeight; i++) {
             var isSecondHalf = i >= t1y - t0y;
             var segmentHeight = isSecondHalf ? t2y - t1y : t1y - t0y;
             var alpha = (float) i / totalHeight;
             var beta = (float) (i - (isSecondHalf ? t1y - t0y : 0)) / segmentHeight;
-            var Ax = (t0x + (t2x - t0x) * alpha);
-            var Bx = (isSecondHalf ? (t1x + (t2x - t1x) * beta) : (t0x + (t1x - t0x) * beta));
-
+            var Ax = (int) (t0x + (t2x - t0x) * alpha);
+            var Bx = (int) (isSecondHalf ? (t1x + (t2x - t1x) * beta) : (t0x + (t1x - t0x) * beta));
             if (Ax > Bx) {
                 var temp = Ax;
                 Ax = Bx;
                 Bx = temp;
             }
-
             var y = t0y + i;
 
+            // TODO: calculate incrementally + generalize
             Vector3D nA;
             Vector3D nB;
-            var t10 = t1.subtract(t0);
-            var t20 = t2.subtract(t0);
-            // 10x 10y
-            // 20 x 20y
-            var det = t10.x() * t20.y() - t10.y() * t20.x();
             if (isSecondHalf) {
-                var firstLeft = det <= 0;
-                var leftN = firstLeft ? n1 : n0;
-                var rightN = firstLeft ? n0 : n1;
-                var left = firstLeft ? t1 : t0;
-                var right = firstLeft ? t0 : t1;
-                nA = n2.mul(y - left.y()).add(leftN.mul(t2y - y)).divide(t2y - left.y());
-                nB = n2.mul(y - right.y()).add(rightN.mul(t2y - y)).divide(t2y - right.y());
+                var leftN = isFirstVertexLeft ? n1 : n0;
+                var rightN = isFirstVertexLeft ? n0 : n1;
+                var left = isFirstVertexLeft ? t1 : t0;
+                var right = isFirstVertexLeft ? t0 : t1;
+                var angle = t2;
+                var angleN = n2;
+                nA = angleN.mul(y - left.y()).add(leftN.mul(angle.y() - y)).divide(angle.y() - left.y());
+                nB = angleN.mul(y - right.y()).add(rightN.mul(angle.y() - y)).divide(angle.y() - right.y());
             } else {
-                var firstLeft = det <= 0;
-                var leftN = firstLeft ? n1 : n2;
-                var rightN = firstLeft ? n2 : n1;
-                var left = firstLeft ? t1 : t2;
-                var right = firstLeft ? t2 : t1;
-                nA = n0.mul(left.y() - y).add(leftN.mul(y - t0y)).divide(left.y() - t0y);
-                nB = n0.mul(right.y() - y).add(rightN.mul(y - t0y)).divide(right.y() - t0y);
+                var leftN = isFirstVertexLeft ? n1 : n2;
+                var rightN = isFirstVertexLeft ? n2 : n1;
+                var left = isFirstVertexLeft ? t1 : t2;
+                var right = isFirstVertexLeft ? t2 : t1;
+                var angle = t0;
+                var angleN = n0;
+                nA = angleN.mul(left.y() - y).add(leftN.mul(y - angle.y())).divide(left.y() - angle.y());
+                nB = angleN.mul(right.y() - y).add(rightN.mul(y - angle.y())).divide(right.y() - angle.y());
             }
 
-            for (var x = (int) Ax; x <= (int) Bx; x++) {
-                var barycentric = barycentric(t0, t1, t2, x, y);
-                if (barycentric.x() < 0 || barycentric.x() > 1 ||
-                        barycentric.y() < 0 || barycentric.y() > 1 ||
-                        barycentric.z() < 0 || barycentric.z() > 1)
+            // barycentric incremental calculation
+            var u = ((y - t2.y()) * d12x + d12y * (t2.x() - Ax)) / triangleArea;
+            var v = ((y - t0.y()) * d20x + d20y * (t0.x() - Ax)) / triangleArea;
+            var w = ((y - t1.y()) * d01x + d01y * (t1.x() - Ax)) / triangleArea;
+            var dU = -d12y / triangleArea;
+            var dV = -d20y / triangleArea;
+            var dW = -d01y / triangleArea;
+
+            // normal
+            var dN = nB.subtract(nA).divide(Bx - Ax);
+            var normal = nA;
+
+            for (var x = Ax; x <= Bx; x++) {
+                if (x != Ax) {
+                    u += dU;
+                    v += dV;
+                    w += dW;
+                }
+                var isPixelOutsideOfTriangle = u < 0 || u > 1 || v < 0 || v > 1 || w < 0 || w > 1;
+                if (isPixelOutsideOfTriangle)
                     continue;
 
-                Vector3D normal;
-                if (i == 0) {
-                    if (Ax == Bx) {
-                        // Looks: /\
-                        normal = n0;
-                    } else {
-                        // Looks: .----.
-                        //         \  /
-                        //          \/
-                        var firstLeft = t0.x() < t1.x();
-                        if (x == Ax) {
-                            // left
-                            normal = firstLeft ? n0 : n1;
-                        } else if (x == Bx) {
-                            // right
-                            normal = firstLeft ? n1 : n0;
-                        } else {
-                            // interpolate
-                            var na = firstLeft ? n0 : n1;
-                            var nb = firstLeft ? n1 : n0;
-                            normal = na.mul(Bx - x).add(nb.mul(x - Ax)).divide(Bx - Ax);
-                        }
-                    }
-                } else if (i == totalHeight - 1) {
-                    if (Ax == Bx) {
-                        // looks: \/
-                        // interpolate n2 <-> n1/n0?
-                        // TODO: select between n0 nA nB
-                        normal = nA.add(nB).add(n0).divide(3);
-                    } else {
-                        if (x == Ax) {
-                            normal = nA;
-                        } else if (x == Bx) {
-                            normal = nB;
-                        } else {
-                            normal = nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
-                        }
-                    }
-                } else {
-                    if (Ax == Bx) {
-                        // TODO: select nA / nB???
-                        normal = nA.add(nB).divide(2);
-                    } else {
-                        if (x == Ax) {
-                            normal = nA;
-                        } else if (x == Bx) {
-                            normal = nB;
-                        } else {
-                            // interpolate
-                            normal = nA.mul(Bx - x).add(nB.mul(x - Ax)).divide(Bx - Ax);
-                        }
-                    }
-                }
+                if (x != Ax)
+                    normal = normal.add(dN);
 
-                var z = t0.z() * barycentric.x() + t1.z() * barycentric.y() + t2.z() * barycentric.z();
-                Vector3D pixelWorld = toWorld.apply(new Vector3D(x, y, z));
+                var z = t0.z() * u + t1.z() * v + t2.z() * w;
+                var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
 
-                normal = normal.normalize();
-                light = light.subtract(pixelWorld).normalize();
-                eye = eye.subtract(pixelWorld).normalize();
+                var normalNormalized = normal.normalize();
+                var lightNormalized = light.subtract(pixelWorld).normalize();
+                var eyeNormalized = eye.subtract(pixelWorld).normalize();
+                var reflect = normalNormalized
+                        .mul(2 * lightNormalized.dot(normalNormalized))
+                        .subtract(lightNormalized);
 
-                var reflect = normal.mul(2 * light.dot(normal)).subtract(light);
-
-                var ambient = ColorUtils.toVector(ambientColorPicker.getValue(), ambientCoef.getValue());
-                var diffuseAlbedo = ColorUtils.toVector(diffuseColorPicker.getValue(), diffuseCoef.getValue());
-                var specularAlbedo = ColorUtils.toVector(specularColorPicker.getValue(), specularCoef.getValue());
-                var specularPower = 128;
-
-                var diffuse = diffuseAlbedo.mul(Math.max(-normal.dot(light), 0));
-                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eye)), specularPower));
-
+                var diffuse = diffuseAlbedo.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
+                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, -reflect.dot(eyeNormalized)), specularPower));
                 var color = ambient.add(diffuse).add(specular);
-                var colorFx = new Color(Math.min(1.0, color.x()), Math.min(1.0, color.y()), Math.min(color.z(), 1.0), 1);
-                var argb = ColorUtils.toArgb(colorFx);
+                var argb = ColorUtils.toArgb(color);
 
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
@@ -614,14 +612,6 @@ public class MainController {
                 }
             }
         }
-    }
-
-    private Vector3D barycentric(Vector3D v1, Vector3D v2, Vector3D v3, int x, int y) {
-        var triangleArea = (v1.y() - v3.y()) * (v2.x() - v3.x()) + (v2.y() - v3.y()) * (v3.x() - v1.x());
-        var b1 = ((y - v3.y()) * (v2.x() - v3.x()) + (v2.y() - v3.y()) * (v3.x() - x)) / triangleArea;
-        var b2 = ((y - v1.y()) * (v3.x() - v1.x()) + (v3.y() - v1.y()) * (v1.x() - x)) / triangleArea;
-        var b3 = ((y - v2.y()) * (v1.x() - v2.x()) + (v1.y() - v2.y()) * (v2.x() - x)) / triangleArea;
-        return new Vector3D(b1, b2, b3);
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
@@ -649,24 +639,6 @@ public class MainController {
     private void drawPixel(WritableImageView buffer, int x, int y, int argbColor) {
         if (x >= 0 && x < W && y >= 0 && y < H)
             buffer.setArgb(x, y, argbColor);
-    }
-
-    @FXML
-    void onFileOpen() {
-        pane.requestFocus();
-        var fileChooser = new FileChooser();
-        var filter = new FileChooser.ExtensionFilter("Wavefont OBJ (*.obj)", "*.obj");
-        fileChooser.getExtensionFilters().add(filter);
-        var file = fileChooser.showOpenDialog(null);
-        if (nonNull(file)) {
-            pane.setCenter(progressIndicator);
-            CompletableFuture.supplyAsync(() -> parseObjAndUpdateProgress(file)).thenAccept(objOpt ->
-                    objOpt.ifPresent(obj -> Platform.runLater(() -> {
-                        progressIndicator.setProgress(0);
-                        pane.setCenter(FRAME_GROUP);
-                        CURRENT_OBJ.set(obj);
-                    })));
-        }
     }
 
     private Optional<ObjGroup> parseObjAndUpdateProgress(File file) {

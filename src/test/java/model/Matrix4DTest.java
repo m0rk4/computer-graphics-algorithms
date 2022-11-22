@@ -13,7 +13,7 @@ public class Matrix4DTest {
                 {-1f, 2f, 3f, 4f},
                 {55f, -66f, 77f, 12f},
                 {32f, -324f, 11f, 4f},
-                {33f, -55f, 777f, - 44f}
+                {33f, -55f, 777f, -44f}
         });
 
         final float[][] res = matrix.invert().contents();
