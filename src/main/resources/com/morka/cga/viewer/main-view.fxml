@@ -15,29 +15,21 @@
     <top>
         <ToolBar prefHeight="40.0" prefWidth="200.0" BorderPane.alignment="CENTER">
             <Button mnemonicParsing="false" onAction="#onFileOpen" text="File" />
-            <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color">
-                <value>
-                    <Color />
-                </value>
-            </ColorPicker>
-         <Slider fx:id="ambientCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.5" />
+            <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color" />
+         <Slider fx:id="ambientCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.1" />
          <ColorPicker fx:id="ambientColorPicker">
             <value>
                <Color />
             </value>
          </ColorPicker>
-         <Slider fx:id="diffuseCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.5" />
+         <Slider fx:id="diffuseCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.85" />
          <ColorPicker fx:id="diffuseColorPicker">
             <value>
-               <Color />
+               <Color red="0.6010136604309082" green="0.9894737005233765" blue="0.6139622926712036" />
             </value>
          </ColorPicker>
-         <Slider fx:id="specularCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.5" />
-         <ColorPicker fx:id="specularColorPicker">
-            <value>
-               <Color />
-            </value>
-         </ColorPicker>
+         <Slider fx:id="specularCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.9" />
+         <ColorPicker fx:id="specularColorPicker" />
         </ToolBar>
     </top>
 </BorderPane>

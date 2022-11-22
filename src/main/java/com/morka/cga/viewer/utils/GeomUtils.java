@@ -24,7 +24,8 @@ public final class GeomUtils {
     }
 
     public static Vector3D getNormalForVertex(FaceElement element, List<Face> faces) {
-        if (element.getVertexNormal() == null) {
+        var noVertexNormalProvided = element.getVertexNormal() == null;
+        if (noVertexNormalProvided) {
             return faces.stream()
                     .map(GeomUtils::getNormal)
                     .reduce(Vector3D::add)

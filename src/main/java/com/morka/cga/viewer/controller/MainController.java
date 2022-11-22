@@ -1,6 +1,7 @@
 package com.morka.cga.viewer.controller;
 
 import com.morka.cga.parser.exception.ObjParserException;
+import com.morka.cga.parser.model.FaceElement;
 import com.morka.cga.parser.model.ObjGroup;
 import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.service.ObjFileParser;
@@ -143,7 +144,7 @@ public class MainController {
     private ColorPicker specularColorPicker;
 
 
-    private Map<Vertex, Vector3D> vertexNormalMap;
+    private Map<FaceElement, Vector3D> vertexNormalMap;
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
 
     private FrameAndZBuffers currentBuffer;
@@ -178,7 +179,7 @@ public class MainController {
         viewMatrix.addListener((__, ___, ____) -> repaint());
         CURRENT_OBJ.addListener((__, ___, obj) -> {
             vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
-                    e -> e.getKey().getVertex(),
+                    Map.Entry::getKey,
                     e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue())
             ));
             vertexWorldNormalMap.clear();
@@ -347,9 +348,9 @@ public class MainController {
                     var secondVertex = elements[1].getVertex();
                     var thirdVertex = elements[2].getVertex();
 
-                    var n0 = getFromCache(firstVertex, worldMatrix);
-                    var n1 = getFromCache(secondVertex, worldMatrix);
-                    var n2 = getFromCache(thirdVertex, worldMatrix);
+                    var n0 = getFromCache(elements[0], worldMatrix);
+                    var n1 = getFromCache(elements[1], worldMatrix);
+                    var n2 = getFromCache(elements[2], worldMatrix);
 
                     var firstOriginal = vector4D(firstVertex);
                     var secondOriginal = vector4D(secondVertex);
@@ -385,13 +386,13 @@ public class MainController {
 
                     // backface culling
                     var eye = eyeBinding.get();
-//                    var faceNormal = firstWorld
-//                            .subtract(secondWorld)
-//                            .cross(firstWorld.subtract(thirdWorld))
-//                            .normalize();
-//                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
-//                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
-//                        return;
+                    var faceNormal = firstWorld
+                            .subtract(secondWorld)
+                            .cross(firstWorld.subtract(thirdWorld))
+                            .normalize();
+                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
+                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
+                        return;
 
                     // TODO: move flat lighting logic to different place
 //                    var factor = (faceNormal.dot(light) * 255);
@@ -421,18 +422,15 @@ public class MainController {
         });
     }
 
-    private Vector3D getFromCache(Vertex vertex, Matrix4D worldMatrix) {
-        var info = vertexWorldNormalMap.get(vertex);
+    private Vector3D getFromCache(FaceElement vertex, Matrix4D worldMatrix) {
+        var info = vertexWorldNormalMap.get(vertex.getVertex());
         if (info != null)
             return info;
         info = worldMatrix.multiply(vertexNormalMap.get(vertex));
-        var putByOtherThreadJustNow = vertexWorldNormalMap.putIfAbsent(vertex, info);
+        var putByOtherThreadJustNow = vertexWorldNormalMap.putIfAbsent(vertex.getVertex(), info);
         if (putByOtherThreadJustNow != null)
             info = putByOtherThreadJustNow;
         return info;
-    }
-
-    private record VertexNormal(Vector3D vertex, Vector3D normal) {
     }
 
     private void drawTriangle(WritableImageView buffer,
@@ -480,9 +478,10 @@ public class MainController {
         var t2x = Math.min(Math.max(0, (int) t2.x()), W - 1);
         var t1x = Math.min(Math.max(0, (int) t1.x()), W - 1);
         var t0x = Math.min(Math.max(0, (int) t0.x()), W - 1);
-//        var degenerateTriangle = t0y == t1y && t0y == t2y;
-//        if (degenerateTriangle)
-//            return;
+
+        var degenerateTriangle = t0y == t1y && t0y == t2y;
+        if (degenerateTriangle)
+            return;
 
         var totalHeight = t2y - t0y;
         for (var i = 0; i < totalHeight; i++) {
@@ -490,8 +489,8 @@ public class MainController {
             var segmentHeight = isSecondHalf ? t2y - t1y : t1y - t0y;
             var alpha = (float) i / totalHeight;
             var beta = (float) (i - (isSecondHalf ? t1y - t0y : 0)) / segmentHeight;
-            var Ax = (int) (t0x + (t2x - t0x) * alpha);
-            var Bx = (int) (isSecondHalf ? (t1x + (t2x - t1x) * beta) : (t0x + (t1x - t0x) * beta));
+            var Ax = (t0x + (t2x - t0x) * alpha);
+            var Bx = (isSecondHalf ? (t1x + (t2x - t1x) * beta) : (t0x + (t1x - t0x) * beta));
 
             if (Ax > Bx) {
                 var temp = Ax;
@@ -503,8 +502,13 @@ public class MainController {
 
             Vector3D nA;
             Vector3D nB;
+            var t10 = t1.subtract(t0);
+            var t20 = t2.subtract(t0);
+            // 10x 10y
+            // 20 x 20y
+            var det = t10.x() * t20.y() - t10.y() * t20.x();
             if (isSecondHalf) {
-                var firstLeft = t1.x() < t0.x();
+                var firstLeft = det <= 0;
                 var leftN = firstLeft ? n1 : n0;
                 var rightN = firstLeft ? n0 : n1;
                 var left = firstLeft ? t1 : t0;
@@ -512,7 +516,7 @@ public class MainController {
                 nA = n2.mul(y - left.y()).add(leftN.mul(t2y - y)).divide(t2y - left.y());
                 nB = n2.mul(y - right.y()).add(rightN.mul(t2y - y)).divide(t2y - right.y());
             } else {
-                var firstLeft = t1.x() < t2.x();
+                var firstLeft = det <= 0;
                 var leftN = firstLeft ? n1 : n2;
                 var rightN = firstLeft ? n2 : n1;
                 var left = firstLeft ? t1 : t2;
@@ -521,7 +525,7 @@ public class MainController {
                 nB = n0.mul(right.y() - y).add(rightN.mul(y - t0y)).divide(right.y() - t0y);
             }
 
-            for (var x = Ax; x <= Bx; x++) {
+            for (var x = (int) Ax; x <= (int) Bx; x++) {
                 var barycentric = barycentric(t0, t1, t2, x, y);
                 if (barycentric.x() < 0 || barycentric.x() > 1 ||
                         barycentric.y() < 0 || barycentric.y() > 1 ||
