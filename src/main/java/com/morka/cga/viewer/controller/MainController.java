@@ -25,6 +25,7 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
 import javafx.scene.Node;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.Slider;
@@ -143,6 +144,9 @@ public class MainController {
     private Slider specularCoef;
     @FXML
     private ColorPicker specularColorPicker;
+    @FXML
+    private CheckBox normalCalculationCheckbox;
+
     private Map<FaceElement, Vector3D> vertexNormalMap;
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
@@ -174,7 +178,7 @@ public class MainController {
         listenFor(KeyCode.Z, KeyCode.DOWN, () -> zTranslationProperty.set(zTranslationProperty.get() - translationStep));
         modelMatrix.addListener((__, ___, ____) -> repaint());
         viewMatrix.addListener((__, ___, ____) -> repaint());
-        CURRENT_OBJ.addListener((__, ___, obj) -> onObjChanged(obj));
+        CURRENT_OBJ.addListener((__, ___, obj) -> onObjChanged(obj, normalCalculationCheckbox.isSelected(), true));
         pane.setOnMousePressed(this::onMousePressed);
         pane.setOnMouseDragged(this::onMouseDragged);
         pane.setOnMouseReleased(e -> mouseDragging = false);
@@ -186,6 +190,7 @@ public class MainController {
         diffuseCoef.valueProperty().addListener((__, ___, ____) -> repaint());
         specularColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
         specularCoef.valueProperty().addListener((__, ___, ____) -> repaint());
+        normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
 
     @FXML
@@ -251,13 +256,14 @@ public class MainController {
         repaint();
     }
 
-    private void onObjChanged(ObjGroup obj) {
+    private void onObjChanged(ObjGroup obj, boolean forceNormalCalculation, boolean forceReset) {
         vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
                 Map.Entry::getKey,
-                e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue())
+                e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue(), forceNormalCalculation)
         ));
         vertexWorldNormalMap.clear();
-        resetStates();
+        if (forceReset)
+            resetStates();
         repaint();
     }
 
@@ -573,7 +579,7 @@ public class MainController {
             var dV = -d20y / triangleArea;
             var dW = -d01y / triangleArea;
 
-            // normal
+            // normal incremental calculation
             var dN = nB.subtract(nA).divide(Bx - Ax);
             var normal = nA;
 

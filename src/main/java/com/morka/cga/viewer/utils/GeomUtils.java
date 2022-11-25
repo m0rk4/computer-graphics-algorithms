@@ -23,9 +23,9 @@ public final class GeomUtils {
         return v2.subtract(v1).cross(v3.subtract(v1)).normalize();
     }
 
-    public static Vector3D getNormalForVertex(FaceElement element, List<Face> faces) {
-        var noVertexNormalProvided = element.getVertexNormal() == null;
-        if (noVertexNormalProvided) {
+    public static Vector3D getNormalForVertex(FaceElement element, List<Face> faces, boolean forceCalculation) {
+        var shouldCalculateNormal = forceCalculation || element.getVertexNormal() == null;
+        if (shouldCalculateNormal) {
             return faces.stream()
                     .map(GeomUtils::getNormal)
                     .reduce(Vector3D::add)

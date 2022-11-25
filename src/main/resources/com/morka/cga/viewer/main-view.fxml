@@ -2,6 +2,7 @@
 
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
 <?import javafx.scene.control.ColorPicker?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ProgressIndicator?>
@@ -10,49 +11,45 @@
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.paint.Color?>
-<BorderPane xmlns:fx="http://javafx.com/fxml/1" fx:id="pane" maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity"
-            minWidth="-Infinity" prefHeight="720.0" prefWidth="1280.0"
-            xmlns="http://javafx.com/javafx/18" fx:controller="com.morka.cga.viewer.controller.MainController">
+
+<BorderPane fx:id="pane" maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="720.0" prefWidth="1280.0" xmlns="http://javafx.com/javafx/18" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.morka.cga.viewer.controller.MainController">
     <center>
-        <ProgressIndicator fx:id="progressIndicator" minHeight="200.0" minWidth="200.0" prefHeight="200.0"
-                           prefWidth="200.0" progress="0.0" BorderPane.alignment="CENTER"/>
+        <ProgressIndicator fx:id="progressIndicator" minHeight="200.0" minWidth="200.0" prefHeight="200.0" prefWidth="200.0" progress="0.0" BorderPane.alignment="CENTER" />
     </center>
     <top>
         <ToolBar prefHeight="40.0" prefWidth="200.0" BorderPane.alignment="CENTER">
-            <Button mnemonicParsing="false" onAction="#onFileOpen" text="File"/>
+            <Button mnemonicParsing="false" onAction="#onFileOpen" text="File" />
         </ToolBar>
     </top>
     <left>
         <VBox alignment="TOP_CENTER" prefHeight="673.0" prefWidth="120.0" spacing="10.0" BorderPane.alignment="CENTER">
             <children>
-                <Label text="Background"/>
-                <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color"/>
-                <Label text="Ambient"/>
-                <Slider fx:id="ambientCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1"
-                        showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.1"/>
+                <Label text="Background" />
+                <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color" />
+                <Label text="Ambient" />
+                <Slider fx:id="ambientCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.1" />
                 <ColorPicker fx:id="ambientColorPicker">
                     <value>
-                        <Color/>
+                        <Color />
                     </value>
                 </ColorPicker>
-                <Label text="Diffuse"/>
-                <Slider fx:id="diffuseCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1"
-                        showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.85"/>
+                <Label text="Diffuse" />
+                <Slider fx:id="diffuseCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.85" />
                 <ColorPicker fx:id="diffuseColorPicker">
                     <value>
-                        <Color red="0.6010136604309082" green="0.9894737005233765" blue="0.6139622926712036"/>
+                        <Color red="0.6010136604309082" green="0.9894737005233765" blue="0.6139622926712036" />
                     </value>
                 </ColorPicker>
-                <Label text="Specular"/>
-                <Slider fx:id="specularCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1"
-                        showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.9"/>
-                <ColorPicker fx:id="specularColorPicker"/>
+                <Label text="Specular" />
+                <Slider fx:id="specularCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.9" />
+                <ColorPicker fx:id="specularColorPicker" />
+            <CheckBox fx:id="normalCalculationCheckbox" mnemonicParsing="false" text="Force normal calculation" textAlignment="JUSTIFY" wrapText="true" />
             </children>
             <BorderPane.margin>
-                <Insets/>
+                <Insets />
             </BorderPane.margin>
             <padding>
-                <Insets bottom="10.0" left="10.0" right="10.0" top="10.0"/>
+                <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />
             </padding>
         </VBox>
     </left>
