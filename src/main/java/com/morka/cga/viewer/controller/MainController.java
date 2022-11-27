@@ -267,7 +267,15 @@ public class MainController {
         repaint();
     }
 
+    private long lastDragEventTimestamp;
+
     private void onMouseDragged(MouseEvent e) {
+        var now = System.nanoTime();
+        var dragThrottleTime = 46666666;
+        if (now - lastDragEventTimestamp <= dragThrottleTime)
+            return;
+
+        lastDragEventTimestamp = now;
         if (!mouseDragging)
             return;
         xEyeProperty.set((float) e.getX());
@@ -602,12 +610,10 @@ public class MainController {
                 var normalNormalized = normal.normalize();
                 var lightNormalized = light.subtract(pixelWorld).normalize();
                 var eyeNormalized = eye.subtract(pixelWorld).normalize();
-                var reflect = normalNormalized
-                        .mul(2 * lightNormalized.dot(normalNormalized))
-                        .subtract(lightNormalized);
+                var reflect = lightNormalized.subtract(normalNormalized.mul(2 * lightNormalized.dot(normalNormalized)));
 
                 var diffuse = diffuseAlbedo.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
-                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, -reflect.dot(eyeNormalized)), specularPower));
+                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
                 var color = ambient.add(diffuse).add(specular);
                 var argb = ColorUtils.toArgb(color);
 
