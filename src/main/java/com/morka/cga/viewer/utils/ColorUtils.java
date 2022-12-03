@@ -24,6 +24,13 @@ public final class ColorUtils {
         return 255 << 24 | red << 16 | green << 8 | blue;
     }
 
+    public static Vector3D toVector(int pixel) {
+        int red = (pixel >> 16) & 0xff;
+        int green = (pixel >> 8) & 0xff;
+        int blue = (pixel) & 0xff;
+        return new Vector3D((float) red / 255f, (float) green / 255f, (float) blue / 255f);
+    }
+
     public static Vector3D toVector(Color color, double coeff) {
         var vector3D = new Vector3D((float) color.getRed(), (float) color.getGreen(), (float) color.getBlue());
         return vector3D.mul((float) coeff);

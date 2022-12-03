@@ -4,6 +4,8 @@ import com.morka.cga.parser.model.Face;
 import com.morka.cga.parser.model.FaceElement;
 import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.model.VertexNormal;
+import com.morka.cga.parser.model.VertexTexture;
+import com.morka.cga.viewer.model.Vector2D;
 import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
 
@@ -46,5 +48,9 @@ public final class GeomUtils {
 
     public static Vector4D vector4D(Vertex vertex) {
         return new Vector4D(vertex.getX(), vertex.getY(), vertex.getZ(), vertex.getW());
+    }
+
+    public static Vector2D vector2D(VertexTexture texture) {
+        return new Vector2D(texture.getU(), texture.getV());
     }
 }

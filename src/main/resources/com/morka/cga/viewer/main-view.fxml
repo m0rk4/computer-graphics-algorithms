@@ -18,7 +18,10 @@
     </center>
     <top>
         <ToolBar prefHeight="40.0" prefWidth="200.0" BorderPane.alignment="CENTER">
-            <Button mnemonicParsing="false" onAction="#onFileOpen" text="File" />
+            <Button mnemonicParsing="false" onAction="#onFileOpen" text="Obj File" />
+         <Button mnemonicParsing="false" onAction="#onDiffuseLoad" text="Diffuse Map" />
+         <Button mnemonicParsing="false" onAction="#onNormalLoad" text="Normal Map" />
+         <Button mnemonicParsing="false" onAction="#onEmissionLoad" text="Emission Map" />
         </ToolBar>
     </top>
     <left>

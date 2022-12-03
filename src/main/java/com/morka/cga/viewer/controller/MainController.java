@@ -3,11 +3,14 @@ package com.morka.cga.viewer.controller;
 import com.morka.cga.parser.exception.ObjParserException;
 import com.morka.cga.parser.model.FaceElement;
 import com.morka.cga.parser.model.ObjGroup;
+import com.morka.cga.parser.model.TextureMap;
 import com.morka.cga.parser.model.Vertex;
 import com.morka.cga.parser.service.ObjFileParser;
 import com.morka.cga.parser.service.ObjFileParserBuilder;
+import com.morka.cga.parser.service.TextureMapParser;
 import com.morka.cga.viewer.buffer.WritableImageView;
 import com.morka.cga.viewer.model.Matrix4D;
+import com.morka.cga.viewer.model.Vector2D;
 import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
 import com.morka.cga.viewer.utils.ColorUtils;
@@ -51,6 +54,7 @@ import java.util.function.DoubleConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.morka.cga.viewer.utils.GeomUtils.vector2D;
 import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
@@ -83,7 +87,8 @@ public class MainController {
     }};
     private static final float CAMERA_SENSITIVITY = 0.01f;
     private final ExecutorService executorService;
-    private final ObjFileParser parser = ObjFileParserBuilder.build();
+    private final ObjFileParser parser = ObjFileParserBuilder.buildObjParser();
+    private final TextureMapParser textureParser = ObjFileParserBuilder.buildTextureParser();
     private final BlockingQueue<FrameAndZBuffers> fullBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
     private final BlockingQueue<FrameAndZBuffers> emptyBuffers = new ArrayBlockingQueue<>(BUFFER_SIZE);
     private final IntegerProperty xTranslationProperty = new SimpleIntegerProperty(0);
@@ -193,6 +198,34 @@ public class MainController {
         normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
 
+    TextureMap diffuseMap;
+    TextureMap normalMap;
+    TextureMap emissionMap;
+
+    @FXML
+    void onEmissionLoad() {
+        emissionMap = loadTextureFile();
+    }
+
+    @FXML
+    void onNormalLoad() {
+        normalMap = loadTextureFile();
+    }
+
+    @FXML
+    void onDiffuseLoad() {
+        diffuseMap = loadTextureFile();
+    }
+
+    private TextureMap loadTextureFile() {
+        pane.requestFocus();
+        var fileChooser = new FileChooser();
+        var file = fileChooser.showOpenDialog(null);
+        if (nonNull(file))
+            return textureParser.parse(file);
+        return null;
+    }
+
     @FXML
     void onFileOpen() {
         pane.requestFocus();
@@ -271,7 +304,7 @@ public class MainController {
 
     private void onMouseDragged(MouseEvent e) {
         var now = System.nanoTime();
-        var dragThrottleTime = 46666666;
+        var dragThrottleTime = 16666666;
         if (now - lastDragEventTimestamp <= dragThrottleTime)
             return;
 
@@ -405,6 +438,8 @@ public class MainController {
                     var secondViewport = VIEWPORT_MATRIX.multiply(secondNdc).to3D();
                     var thirdViewport = VIEWPORT_MATRIX.multiply(thirdNdc).to3D();
 
+                    // TODO: interpolate
+                    // TODO: tone mapping
                     var viewportToWorldConverter = (Function<Vector3D, Vector3D>) viewport -> {
                         var ndc = invViewport.multiply(new Vector4D(viewport.x(), viewport.y(), viewport.z(), 1f));
                         var homView = invProj.multiply(ndc);
@@ -441,12 +476,21 @@ public class MainController {
                     drawTriangle(
                             frameBuffer,
                             zBuffer,
-                            new Vector3D((int) firstViewport.x(), (int) firstViewport.y(), firstMv.z()),
-                            new Vector3D((int) secondViewport.x(), (int) secondViewport.y(), secondMv.z()),
-                            new Vector3D((int) thirdViewport.x(), (int) thirdViewport.y(), thirdMv.z()),
-                            n0,
-                            n1,
-                            n2,
+                            new VTN(
+                                    new Vector3D((int) firstViewport.x(), (int) firstViewport.y(), firstMv.z()),
+                                    vector2D(elements[0].getVertexTexture()),
+                                    n0
+                            ),
+                            new VTN(
+                                    new Vector3D((int) secondViewport.x(), (int) secondViewport.y(), secondMv.z()),
+                                    vector2D(elements[1].getVertexTexture()),
+                                    n1
+                            ),
+                            new VTN(
+                                    new Vector3D((int) thirdViewport.x(), (int) thirdViewport.y(), thirdMv.z()),
+                                    vector2D(elements[2].getVertexTexture()),
+                                    n2
+                            ),
                             light,
                             eye,
                             viewportToWorldConverter
@@ -457,6 +501,9 @@ public class MainController {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private record VTN(Vector3D vertex, Vector2D texture, Vector3D normal) {
     }
 
     private Vector3D computeWorldNormalIfAbsent(FaceElement vertex, Matrix4D worldMatrix) {
@@ -472,68 +519,53 @@ public class MainController {
 
     private void drawTriangle(WritableImageView buffer,
                               float[] zBuffer,
-                              Vector3D t0,
-                              Vector3D t1,
-                              Vector3D t2,
-                              Vector3D n0,
-                              Vector3D n1,
-                              Vector3D n2,
+                              VTN t0,
+                              VTN t1,
+                              VTN t2,
                               Vector3D light,
                               Vector3D eye,
                               Function<Vector3D, Vector3D> toWorld) {
-        if (t0.y() > t1.y()) {
+        if (t0.vertex().y() > t1.vertex.y()) {
             var temp = t0;
             t0 = t1;
             t1 = temp;
-
-            temp = n0;
-            n0 = n1;
-            n1 = temp;
         }
 
-        if (t0.y() > t2.y()) {
+        if (t0.vertex().y() > t2.vertex().y()) {
             var temp = t0;
             t0 = t2;
             t2 = temp;
-
-            temp = n0;
-            n0 = n2;
-            n2 = temp;
         }
 
-        if (t1.y() > t2.y()) {
+        if (t1.vertex().y() > t2.vertex().y()) {
             var temp = t1;
             t1 = t2;
             t2 = temp;
-
-            temp = n1;
-            n1 = n2;
-            n2 = temp;
         }
 
-        var t2y = Math.min(Math.max(0, (int) t2.y()), H - 1);
-        var t1y = Math.min(Math.max(0, (int) t1.y()), H - 1);
-        var t0y = Math.min(Math.max(0, (int) t0.y()), H - 1);
+        var t2y = Math.min(Math.max(0, (int) t2.vertex().y()), H - 1);
+        var t1y = Math.min(Math.max(0, (int) t1.vertex().y()), H - 1);
+        var t0y = Math.min(Math.max(0, (int) t0.vertex().y()), H - 1);
 
-        var t2x = Math.min(Math.max(0, (int) t2.x()), W - 1);
-        var t1x = Math.min(Math.max(0, (int) t1.x()), W - 1);
-        var t0x = Math.min(Math.max(0, (int) t0.x()), W - 1);
+        var t2x = Math.min(Math.max(0, (int) t2.vertex().x()), W - 1);
+        var t1x = Math.min(Math.max(0, (int) t1.vertex().x()), W - 1);
+        var t0x = Math.min(Math.max(0, (int) t0.vertex().x()), W - 1);
 
         var degenerateTriangle = t0y == t1y && t0y == t2y;
         if (degenerateTriangle)
             return;
 
         var totalHeight = t2y - t0y;
-        var d12y = t1.y() - t2.y();
-        var d12x = t1.x() - t2.x();
-        var d20y = t2.y() - t0.y();
-        var d01y = t0.y() - t1.y();
-        var d01x = t0.x() - t1.x();
-        var d20x = t2.x() - t0.x();
+        var d12y = t1.vertex().y() - t2.vertex().y();
+        var d12x = t1.vertex().x() - t2.vertex().x();
+        var d20y = t2.vertex().y() - t0.vertex().y();
+        var d01y = t0.vertex().y() - t1.vertex().y();
+        var d01x = t0.vertex().x() - t1.vertex().x();
+        var d20x = t2.vertex().x() - t0.vertex().x();
         var triangleArea = -d20y * d12x + d12y * d20x;
 
-        var t10 = t1.subtract(t0);
-        var t20 = t2.subtract(t0);
+        var t10 = t1.vertex().subtract(t0.vertex());
+        var t20 = t2.vertex().subtract(t0.vertex());
         var isFirstVertexLeft = t10.x() * t20.y() - t10.y() * t20.x() <= 0;
 
         // todo: Can be moved even higher
@@ -556,40 +588,28 @@ public class MainController {
             }
             var y = t0y + i;
 
-            // TODO: calculate incrementally + generalize
-            Vector3D nA;
-            Vector3D nB;
-            if (isSecondHalf) {
-                var leftN = isFirstVertexLeft ? n1 : n0;
-                var rightN = isFirstVertexLeft ? n0 : n1;
-                var left = isFirstVertexLeft ? t1 : t0;
-                var right = isFirstVertexLeft ? t0 : t1;
-                var angle = t2;
-                var angleN = n2;
-                nA = angleN.mul(y - left.y()).add(leftN.mul(angle.y() - y)).divide(angle.y() - left.y());
-                nB = angleN.mul(y - right.y()).add(rightN.mul(angle.y() - y)).divide(angle.y() - right.y());
-            } else {
-                var leftN = isFirstVertexLeft ? n1 : n2;
-                var rightN = isFirstVertexLeft ? n2 : n1;
-                var left = isFirstVertexLeft ? t1 : t2;
-                var right = isFirstVertexLeft ? t2 : t1;
-                var angle = t0;
-                var angleN = n0;
-                nA = angleN.mul(left.y() - y).add(leftN.mul(y - angle.y())).divide(left.y() - angle.y());
-                nB = angleN.mul(right.y() - y).add(rightN.mul(y - angle.y())).divide(right.y() - angle.y());
-            }
+            // TODO: calculate incrementally
+            var left = isFirstVertexLeft ? t1 : (isSecondHalf ? t0 : t2);
+            var right = !isFirstVertexLeft ? t1 : (isSecondHalf ? t0 : t2);
+            var angle = isSecondHalf ? t2 : t0;
+            var nA = interpolateNormalY(y, left, angle);
+            var nB = interpolateNormalY(y, right, angle);
+            var tA = interpolateTextureY(y, left, angle);
+            var tB = interpolateTextureY(y, right, angle);
 
             // barycentric incremental calculation
-            var u = ((y - t2.y()) * d12x + d12y * (t2.x() - Ax)) / triangleArea;
-            var v = ((y - t0.y()) * d20x + d20y * (t0.x() - Ax)) / triangleArea;
-            var w = ((y - t1.y()) * d01x + d01y * (t1.x() - Ax)) / triangleArea;
+            var u = ((y - t2.vertex().y()) * d12x + d12y * (t2.vertex().x() - Ax)) / triangleArea;
+            var v = ((y - t0.vertex().y()) * d20x + d20y * (t0.vertex().x() - Ax)) / triangleArea;
+            var w = ((y - t1.vertex().y()) * d01x + d01y * (t1.vertex().x() - Ax)) / triangleArea;
             var dU = -d12y / triangleArea;
             var dV = -d20y / triangleArea;
             var dW = -d01y / triangleArea;
 
             // normal incremental calculation
             var dN = nB.subtract(nA).divide(Bx - Ax);
+            var dT = tB.subtract(tA).divide(Bx - Ax);
             var normal = nA;
+            var texture = tA;
 
             for (var x = Ax; x <= Bx; x++) {
                 if (x != Ax) {
@@ -601,19 +621,33 @@ public class MainController {
                 if (isPixelOutsideOfTriangle)
                     continue;
 
-                if (x != Ax)
+                if (x != Ax) {
                     normal = normal.add(dN);
+                    texture = texture.add(dT);
+                }
 
-                var z = t0.z() * u + t1.z() * v + t2.z() * w;
+                // texture block
+                var textureX = Math.max((int) (texture.u() * diffuseMap.w()) - 1, 0);
+                var textureY = Math.max((int) ((1 - texture.v()) * diffuseMap.h()) - 1, 0);
+                var textureColor = ColorUtils.toVector(diffuseMap.at(textureX, textureY));
+                var textureNormal = ColorUtils.toVector(normalMap.at(textureX, textureY))
+                        .mul(2)
+                        .subtract(new Vector3D(1, 1, 1));
+                var textureSpecular = ColorUtils.toVector(emissionMap.at(textureX, textureY));
+
+                var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
                 var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
 
-                var normalNormalized = normal.normalize();
+//                var normalNormalized = normal.normalize();
+                var normalNormalized = textureNormal;
                 var lightNormalized = light.subtract(pixelWorld).normalize();
                 var eyeNormalized = eye.subtract(pixelWorld).normalize();
                 var reflect = lightNormalized.subtract(normalNormalized.mul(2 * lightNormalized.dot(normalNormalized)));
 
-                var diffuse = diffuseAlbedo.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
-                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
+//                var diffuse = diffuseAlbedo.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
+                var diffuse = textureColor.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
+//                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
+                var specular = textureSpecular.mul((float) specularCoef.getValue()).mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
                 var color = ambient.add(diffuse).add(specular);
                 var argb = ColorUtils.toArgb(color);
 
@@ -624,6 +658,16 @@ public class MainController {
                 }
             }
         }
+    }
+
+    private static Vector3D interpolateNormalY(int y, VTN i0, VTN i1) {
+        var t = (y - i0.vertex().y()) / (i1.vertex().y() - i0.vertex().y());
+        return i1.normal().mul(t).add(i0.normal().mul(1 - t));
+    }
+
+    private static Vector2D interpolateTextureY(int y, VTN i0, VTN i1) {
+        var t = (y - i0.vertex().y()) / (i1.vertex().y() - i0.vertex().y());
+        return i1.texture().mul(t).add(i0.texture().mul(1 - t));
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
