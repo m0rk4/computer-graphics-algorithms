@@ -476,17 +476,17 @@ public class MainController {
                     drawTriangle(
                             frameBuffer,
                             zBuffer,
-                            new VTN(
+                            new VertexTextureNormal(
                                     new Vector3D((int) firstViewport.x(), (int) firstViewport.y(), firstMv.z()),
                                     vector2D(elements[0].getVertexTexture()),
                                     n0
                             ),
-                            new VTN(
+                            new VertexTextureNormal(
                                     new Vector3D((int) secondViewport.x(), (int) secondViewport.y(), secondMv.z()),
                                     vector2D(elements[1].getVertexTexture()),
                                     n1
                             ),
-                            new VTN(
+                            new VertexTextureNormal(
                                     new Vector3D((int) thirdViewport.x(), (int) thirdViewport.y(), thirdMv.z()),
                                     vector2D(elements[2].getVertexTexture()),
                                     n2
@@ -503,7 +503,7 @@ public class MainController {
         });
     }
 
-    private record VTN(Vector3D vertex, Vector2D texture, Vector3D normal) {
+    private record VertexTextureNormal(Vector3D vertex, Vector2D texture, Vector3D normal) {
     }
 
     private Vector3D computeWorldNormalIfAbsent(FaceElement vertex, Matrix4D worldMatrix) {
@@ -519,9 +519,9 @@ public class MainController {
 
     private void drawTriangle(WritableImageView buffer,
                               float[] zBuffer,
-                              VTN t0,
-                              VTN t1,
-                              VTN t2,
+                              VertexTextureNormal t0,
+                              VertexTextureNormal t1,
+                              VertexTextureNormal t2,
                               Vector3D light,
                               Vector3D eye,
                               Function<Vector3D, Vector3D> toWorld) {
@@ -588,16 +588,24 @@ public class MainController {
             }
             var y = t0y + i;
 
-            // TODO: calculate incrementally
             var left = isFirstVertexLeft ? t1 : (isSecondHalf ? t0 : t2);
             var right = !isFirstVertexLeft ? t1 : (isSecondHalf ? t0 : t2);
             var angle = isSecondHalf ? t2 : t0;
-            var nA = interpolateNormalY(y, left, angle);
-            var nB = interpolateNormalY(y, right, angle);
-            var tA = interpolateTextureY(y, left, angle);
-            var tB = interpolateTextureY(y, right, angle);
 
-            // barycentric incremental calculation
+            var interpolationCoefLeft = (y - left.vertex().y()) / (angle.vertex().y() - left.vertex().y());
+            var interpolationCoefRight = (y - right.vertex().y()) / (angle.vertex().y() - right.vertex().y());
+
+            var nA = interpolate(interpolationCoefLeft, left.normal(), angle.normal());
+            var nB = interpolate(interpolationCoefRight, right.normal(), angle.normal());
+
+            // 1/z u/z v/z
+            var leftW = new Vector3D(1f / left.vertex().z(), left.texture().u() / left.vertex().z(), left.texture().v() / left.vertex().z());
+            var angleW = new Vector3D(1f / angle.vertex().z(), angle.texture().u() / angle.vertex().z(), angle.texture().v() / angle.vertex().z());
+            var rightW = new Vector3D(1f / right.vertex().z(), right.texture().u() / right.vertex().z(), right.texture().v() / right.vertex().z());
+
+            var tA = interpolate(interpolationCoefLeft, leftW, angleW);
+            var tB = interpolate(interpolationCoefRight, rightW, angleW);
+
             var u = ((y - t2.vertex().y()) * d12x + d12y * (t2.vertex().x() - Ax)) / triangleArea;
             var v = ((y - t0.vertex().y()) * d20x + d20y * (t0.vertex().x() - Ax)) / triangleArea;
             var w = ((y - t1.vertex().y()) * d01x + d01y * (t1.vertex().x() - Ax)) / triangleArea;
@@ -605,7 +613,6 @@ public class MainController {
             var dV = -d20y / triangleArea;
             var dW = -d01y / triangleArea;
 
-            // normal incremental calculation
             var dN = nB.subtract(nA).divide(Bx - Ax);
             var dT = tB.subtract(tA).divide(Bx - Ax);
             var normal = nA;
@@ -626,12 +633,17 @@ public class MainController {
                     texture = texture.add(dT);
                 }
 
-                // texture block
-                var textureColor = diffuseMap == null ? diffuseAlbedo : ColorUtils.toVector(getTextureArgb(texture, diffuseMap));
-                var textureNormal = normalMap == null ? normal.normalize() : ColorUtils.toVector(getTextureArgb(texture, normalMap))
+                // 1 / (1/z)
+                // (u/z) * z
+                // (v/z) * z
+                var zzz = 1f / texture.x();
+                var textureCorrected = new Vector2D(texture.y() * zzz, texture.z() * zzz);
+
+                var textureColor = diffuseMap == null ? diffuseAlbedo : ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap));
+                var textureNormal = normalMap == null ? normal.normalize() : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
-                var textureSpecular = emissionMap == null ? specularAlbedo : ColorUtils.toVector(getTextureArgb(texture, emissionMap));
+                var textureSpecular = emissionMap == null ? specularAlbedo : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
 
                 var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
                 var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
@@ -656,19 +668,13 @@ public class MainController {
     }
 
     private static int getTextureArgb(Vector2D texel, TextureMap map) {
-        var textureX = Math.max((int) (texel.u() * map.w()) - 1, 0);
-        var textureY = Math.max((int) ((1 - texel.v()) * map.h()) - 1, 0);
+        var textureX = Math.min(Math.max((int) (texel.u() * map.w()) - 1, 0), map.w() - 1);
+        var textureY = Math.min(Math.max((int) ((1 - texel.v()) * map.h()) - 1, 0), map.h() - 1);
         return map.at(textureX, textureY);
     }
 
-    private static Vector3D interpolateNormalY(int y, VTN i0, VTN i1) {
-        var t = (y - i0.vertex().y()) / (i1.vertex().y() - i0.vertex().y());
-        return i1.normal().mul(t).add(i0.normal().mul(1 - t));
-    }
-
-    private static Vector2D interpolateTextureY(int y, VTN i0, VTN i1) {
-        var t = (y - i0.vertex().y()) / (i1.vertex().y() - i0.vertex().y());
-        return i1.texture().mul(t).add(i0.texture().mul(1 - t));
+    private static Vector3D interpolate(float t, Vector3D i0, Vector3D i1) {
+        return i1.mul(t).add(i0.mul(1 - t));
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
