@@ -627,26 +627,21 @@ public class MainController {
                 }
 
                 // texture block
-                var textureX = Math.max((int) (texture.u() * diffuseMap.w()) - 1, 0);
-                var textureY = Math.max((int) ((1 - texture.v()) * diffuseMap.h()) - 1, 0);
-                var textureColor = ColorUtils.toVector(diffuseMap.at(textureX, textureY));
-                var textureNormal = ColorUtils.toVector(normalMap.at(textureX, textureY))
+                var textureColor = diffuseMap == null ? diffuseAlbedo : ColorUtils.toVector(getTextureArgb(texture, diffuseMap));
+                var textureNormal = normalMap == null ? normal.normalize() : ColorUtils.toVector(getTextureArgb(texture, normalMap))
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
-                var textureSpecular = ColorUtils.toVector(emissionMap.at(textureX, textureY));
+                var textureSpecular = emissionMap == null ? specularAlbedo : ColorUtils.toVector(getTextureArgb(texture, emissionMap));
 
                 var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
                 var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
 
-//                var normalNormalized = normal.normalize();
                 var normalNormalized = textureNormal;
                 var lightNormalized = light.subtract(pixelWorld).normalize();
                 var eyeNormalized = eye.subtract(pixelWorld).normalize();
                 var reflect = lightNormalized.subtract(normalNormalized.mul(2 * lightNormalized.dot(normalNormalized)));
 
-//                var diffuse = diffuseAlbedo.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
                 var diffuse = textureColor.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
-//                var specular = specularAlbedo.mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
                 var specular = textureSpecular.mul((float) specularCoef.getValue()).mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
                 var color = ambient.add(diffuse).add(specular);
                 var argb = ColorUtils.toArgb(color);
@@ -658,6 +653,12 @@ public class MainController {
                 }
             }
         }
+    }
+
+    private static int getTextureArgb(Vector2D texel, TextureMap map) {
+        var textureX = Math.max((int) (texel.u() * map.w()) - 1, 0);
+        var textureY = Math.max((int) ((1 - texel.v()) * map.h()) - 1, 0);
+        return map.at(textureX, textureY);
     }
 
     private static Vector3D interpolateNormalY(int y, VTN i0, VTN i1) {
