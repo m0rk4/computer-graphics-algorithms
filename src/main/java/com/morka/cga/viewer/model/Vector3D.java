@@ -54,4 +54,12 @@ public record Vector3D(float x, float y, float z) {
                 z * mul
         );
     }
+
+    public Vector3D mul(Vector3D other) {
+        return new Vector3D(
+                x * other.x(),
+                y * other.y(),
+                z * other.z()
+        );
+    }
 }

@@ -137,18 +137,28 @@ public class MainController {
     private ProgressIndicator progressIndicator;
     @FXML
     private ColorPicker backgroundColorPicker;
+
     @FXML
-    private Slider ambientCoef;
+    private ColorPicker iAPicker;
+
     @FXML
-    private ColorPicker ambientColorPicker;
+    private ColorPicker iDPicker;
+
     @FXML
-    private Slider diffuseCoef;
+    private ColorPicker iSPicker;
+
     @FXML
-    private ColorPicker diffuseColorPicker;
+    private ColorPicker kAPicker;
+
     @FXML
-    private Slider specularCoef;
+    private ColorPicker kDPicker;
+
     @FXML
-    private ColorPicker specularColorPicker;
+    private ColorPicker kSPicker;
+
+    @FXML
+    private Slider specularPower;
+
     @FXML
     private CheckBox normalCalculationCheckbox;
 
@@ -189,12 +199,13 @@ public class MainController {
         pane.setOnMouseReleased(e -> mouseDragging = false);
         pane.setOnScroll(this::onScroll);
         backgroundColorPicker.valueProperty().addListener((__, ___, color) -> onBackgroundColorChanged(color));
-        ambientColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
-        ambientCoef.valueProperty().addListener((__, ___, ____) -> repaint());
-        diffuseColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
-        diffuseCoef.valueProperty().addListener((__, ___, ____) -> repaint());
-        specularColorPicker.valueProperty().addListener((__, ___, ____) -> repaint());
-        specularCoef.valueProperty().addListener((__, ___, ____) -> repaint());
+        iAPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        kAPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        iDPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        kDPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        iSPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        kSPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        specularPower.valueProperty().addListener((__, ___, ____) -> repaint());
         normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
 
@@ -568,11 +579,10 @@ public class MainController {
         var t20 = t2.vertex().subtract(t0.vertex());
         var isFirstVertexLeft = t10.x() * t20.y() - t10.y() * t20.x() <= 0;
 
-        // todo: Can be moved even higher
-        var ambient = ColorUtils.toVector(ambientColorPicker.getValue(), ambientCoef.getValue());
-        var diffuseAlbedo = ColorUtils.toVector(diffuseColorPicker.getValue(), diffuseCoef.getValue());
-        var specularAlbedo = ColorUtils.toVector(specularColorPicker.getValue(), specularCoef.getValue());
-        var specularPower = 128;
+        var iA = ColorUtils.toVector(iAPicker.getValue());
+        var iD = ColorUtils.toVector(iDPicker.getValue());
+        var iS = ColorUtils.toVector(iSPicker.getValue());
+        var specularAlpha = specularPower.getValue();
 
         for (var i = 0; i < totalHeight; i++) {
             var isSecondHalf = i >= t1y - t0y;
@@ -598,7 +608,6 @@ public class MainController {
             var nA = interpolate(interpolationCoefLeft, left.normal(), angle.normal());
             var nB = interpolate(interpolationCoefRight, right.normal(), angle.normal());
 
-            // 1/z u/z v/z
             var leftW = new Vector3D(1f / left.vertex().z(), left.texture().u() / left.vertex().z(), left.texture().v() / left.vertex().z());
             var angleW = new Vector3D(1f / angle.vertex().z(), angle.texture().u() / angle.vertex().z(), angle.texture().v() / angle.vertex().z());
             var rightW = new Vector3D(1f / right.vertex().z(), right.texture().u() / right.vertex().z(), right.texture().v() / right.vertex().z());
@@ -633,17 +642,30 @@ public class MainController {
                     texture = texture.add(dT);
                 }
 
-                // 1 / (1/z)
-                // (u/z) * z
-                // (v/z) * z
                 var zzz = 1f / texture.x();
                 var textureCorrected = new Vector2D(texture.y() * zzz, texture.z() * zzz);
 
-                var textureColor = diffuseMap == null ? diffuseAlbedo : ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap));
-                var textureNormal = normalMap == null ? normal.normalize() : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
+                Vector3D kA;
+                Vector3D kD;
+                if (diffuseMap != null) {
+                    var argb = getTextureArgb(textureCorrected, diffuseMap);
+                    var aD = ColorUtils.toVector4(argb);
+                    kA = new Vector3D(aD.x(), aD.x(), aD.x());
+                    kD = new Vector3D(aD.y(), aD.z(), aD.w());
+                } else {
+                    kA = ColorUtils.toVector(kAPicker.getValue());
+                    kD = ColorUtils.toVector(kDPicker.getValue());
+                }
+
+                var textureNormal = normalMap == null
+                        ? normal.normalize()
+                        : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
-                var textureSpecular = emissionMap == null ? specularAlbedo : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
+
+                var kS = emissionMap == null
+                        ? ColorUtils.toVector(kSPicker.getValue())
+                        : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
 
                 var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
                 var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
@@ -653,11 +675,16 @@ public class MainController {
                 var eyeNormalized = eye.subtract(pixelWorld).normalize();
                 var reflect = lightNormalized.subtract(normalNormalized.mul(2 * lightNormalized.dot(normalNormalized)));
 
-                var diffuse = textureColor.mul(Math.max(-normalNormalized.dot(lightNormalized), 0));
-                var specular = textureSpecular.mul((float) specularCoef.getValue()).mul((float) Math.pow(Math.max(0, reflect.dot(eyeNormalized)), specularPower));
-                var color = ambient.add(diffuse).add(specular);
-                var argb = ColorUtils.toArgb(color);
+                var ambient = kA.mul(iA);
+                var diffuse = kD
+                        .mul(Math.max(-normalNormalized.dot(lightNormalized), 0f))
+                        .mul(iD);
+                var specular = kS
+                        .mul((float) Math.pow(Math.max(reflect.dot(eyeNormalized), 0f), specularAlpha))
+                        .mul(iS);
 
+                var color = ambient.add(diffuse).add(specular);
+                var argb = ColorUtils.toArgbWithClamp(color);
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
                     drawPixel(buffer, x, y, argb);

@@ -1,6 +1,7 @@
 package com.morka.cga.viewer.utils;
 
 import com.morka.cga.viewer.model.Vector3D;
+import com.morka.cga.viewer.model.Vector4D;
 import javafx.scene.paint.Color;
 
 public final class ColorUtils {
@@ -17,7 +18,7 @@ public final class ColorUtils {
         return opacity << 24 | red << 16 | green << 8 | blue;
     }
 
-    public static int toArgb(Vector3D color) {
+    public static int toArgbWithClamp(Vector3D color) {
         var red = (int) (Math.min(color.x(), 1) * 255);
         var green = (int) (Math.min(color.y(), 1) * 255);
         var blue = (int) (Math.min(color.z(), 1) * 255);
@@ -31,8 +32,15 @@ public final class ColorUtils {
         return new Vector3D((float) red / 255f, (float) green / 255f, (float) blue / 255f);
     }
 
-    public static Vector3D toVector(Color color, double coeff) {
-        var vector3D = new Vector3D((float) color.getRed(), (float) color.getGreen(), (float) color.getBlue());
-        return vector3D.mul((float) coeff);
+    public static Vector4D toVector4(int pixel) {
+        int alpha = (pixel >> 24) & 0xff;
+        int red = (pixel >> 16) & 0xff;
+        int green = (pixel >> 8) & 0xff;
+        int blue = (pixel) & 0xff;
+        return new Vector4D((float) alpha / 255f, (float) red / 255f, (float) green / 255f, (float) blue / 255f);
+    }
+
+    public static Vector3D toVector(Color color) {
+        return new Vector3D((float) color.getRed(), (float) color.getGreen(), (float) color.getBlue());
     }
 }

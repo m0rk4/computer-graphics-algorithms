@@ -6,6 +6,7 @@
 <?import javafx.scene.control.ColorPicker?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ProgressIndicator?>
+<?import javafx.scene.control.Separator?>
 <?import javafx.scene.control.Slider?>
 <?import javafx.scene.control.ToolBar?>
 <?import javafx.scene.layout.BorderPane?>
@@ -19,7 +20,7 @@
     <top>
         <ToolBar prefHeight="40.0" prefWidth="200.0" BorderPane.alignment="CENTER">
             <Button mnemonicParsing="false" onAction="#onFileOpen" text="Obj File" />
-         <Button mnemonicParsing="false" onAction="#onDiffuseLoad" text="Diffuse Map" />
+         <Button mnemonicParsing="false" onAction="#onDiffuseLoad" text="Base Color Map" />
          <Button mnemonicParsing="false" onAction="#onNormalLoad" text="Normal Map" />
          <Button mnemonicParsing="false" onAction="#onEmissionLoad" text="Emission Map" />
         </ToolBar>
@@ -29,23 +30,32 @@
             <children>
                 <Label text="Background" />
                 <ColorPicker fx:id="backgroundColorPicker" promptText="Background Color" />
-                <Label text="Ambient" />
-                <Slider fx:id="ambientCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.1" />
-                <ColorPicker fx:id="ambientColorPicker">
+            <Separator prefWidth="200.0" />
+            <Label text="Phong Model" />
+            <Label text="K - Material Specific value" wrapText="true" />
+            <Label text="I - Intensity of the light" wrapText="true" />
+            <Separator prefWidth="200.0" />
+                <Label text="Ambient (K &amp; I)" />
+            <ColorPicker fx:id="kAPicker" />
+                <ColorPicker fx:id="iAPicker">
                     <value>
                         <Color />
                     </value>
                 </ColorPicker>
-                <Label text="Diffuse" />
-                <Slider fx:id="diffuseCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.85" />
-                <ColorPicker fx:id="diffuseColorPicker">
+            <Separator prefWidth="200.0" />
+                <Label text="Diffuse (K &amp; I)" />
+            <ColorPicker fx:id="kDPicker" />
+                <ColorPicker fx:id="iDPicker">
                     <value>
                         <Color red="0.6010136604309082" green="0.9894737005233765" blue="0.6139622926712036" />
                     </value>
                 </ColorPicker>
-                <Label text="Specular" />
-                <Slider fx:id="specularCoef" blockIncrement="0.1" majorTickUnit="0.1" max="1.0" minorTickCount="1" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="0.9" />
-                <ColorPicker fx:id="specularColorPicker" />
+            <Separator prefWidth="200.0" />
+                <Label text="Specular (K &amp; I &amp; alpha)" wrapText="true" />
+            <ColorPicker fx:id="kSPicker" />
+                <ColorPicker fx:id="iSPicker" />
+            <Slider fx:id="specularPower" blockIncrement="32.0" majorTickUnit="32.0" max="256.0" min="32.0" minorTickCount="32" showTickLabels="true" showTickMarks="true" snapToTicks="true" value="128.0" />
+            <Separator prefWidth="200.0" />
             <CheckBox fx:id="normalCalculationCheckbox" mnemonicParsing="false" text="Force normal calculation" textAlignment="JUSTIFY" wrapText="true" />
             </children>
             <BorderPane.margin>
