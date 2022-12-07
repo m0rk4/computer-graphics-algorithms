@@ -25,7 +25,7 @@ public final class PbrUtils {
         float denominator = (nDotH2 * (a2 - 1.0f) + 1.0f);
         denominator = (float) Math.PI * denominator * denominator;
 
-        return a2 / Math.max(denominator, 0.000001f);
+        return a2 / Math.max(denominator, 0.001f);
     }
 
     /**
@@ -37,12 +37,11 @@ public final class PbrUtils {
      */
     public static float geometrySchlickGGX(float nDotV, float roughness) {
         float r = (roughness + 1.0f);
-        // TODO: divide by 8 or 2?
         float k = (r * r) / 8.0f;
 
         float denominator = nDotV * (1.0f - k) + k;
 
-        return nDotV / Math.max(denominator, 0.000001f);
+        return nDotV / Math.max(denominator, 0.001f);
     }
 
     /**

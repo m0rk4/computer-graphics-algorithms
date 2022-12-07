@@ -123,7 +123,7 @@ public class MainController {
             () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
             translationBinding, scaleBinding, rotationBinding
     );
-    private final Vector3D light = new Vector3D(0, 0, -50);
+    private final Vector3D light = new Vector3D(0, 0, 50);
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
     private float lastPositionX;
     private float lastPositionY;
@@ -497,7 +497,6 @@ public class MainController {
                     var thirdViewport = VIEWPORT_MATRIX.multiply(thirdNdc).to3D();
 
                     // TODO: interpolate
-                    // TODO: tone mapping
                     var viewportToWorldConverter = (Function<Vector3D, Vector3D>) viewport -> {
                         var ndc = invViewport.multiply(new Vector4D(viewport.x(), viewport.y(), viewport.z(), 1f));
                         var homView = invProj.multiply(ndc);
@@ -514,22 +513,16 @@ public class MainController {
                     var secondMv = viewMatrix.multiply(worldMatrix).multiply(secondOriginal).to3D();
                     var thirdMv = viewMatrix.multiply(worldMatrix).multiply(thirdOriginal).to3D();
 
-                    // backface culling
-                    var eye = eyeBinding.get();
-                    var faceNormal = firstWorld
+                    var camera = eyeBinding.get();
+                    var N = firstWorld
                             .subtract(secondWorld)
                             .cross(firstWorld.subtract(thirdWorld))
                             .normalize();
-                    var eyeBackFaceCulling = eye.subtract(firstWorld).normalize();
-                    if (faceNormal.dot(eyeBackFaceCulling) <= 0)
+                    var V = camera.subtract(firstWorld).normalize();
+                    if (N.dot(V) <= 0)
                         return;
 
-                    // TODO: move flat lighting logic to different place
-                    var factor = (faceNormal.dot(light) * 255);
-                    if (factor <= 0)
-                        factor = 0;
-                    var intensity = (int) factor;
-                    var flatColor = 255 << 24 | intensity << 16 | intensity << 8 | intensity;
+                    var flat = max(N.dot(light.normalize()), 0);
 
                     drawTriangle(
                             frameBuffer,
@@ -550,8 +543,9 @@ public class MainController {
                                     n2
                             ),
                             light,
-                            eye,
-                            viewportToWorldConverter
+                            camera,
+                            viewportToWorldConverter,
+                            new Vector3D(flat, flat, flat)
                     );
                 });
                 fullBuffers.add(buffers);
@@ -582,8 +576,9 @@ public class MainController {
                               VertexTextureNormal t2,
                               Vector3D light,
                               Vector3D camera,
-                              Function<Vector3D, Vector3D> toWorld) {
-        if (t0.vertex().y() > t1.vertex.y()) {
+                              Function<Vector3D, Vector3D> toWorld,
+                              Vector3D flatColor) {
+        if (t0.vertex().y() > t1.vertex().y()) {
             var temp = t0;
             t0 = t1;
             t1 = temp;
@@ -696,14 +691,14 @@ public class MainController {
                         : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
-                var L = light.subtract(pixelWorld).normalize();
+                var L = light.normalize();
                 var V = camera.subtract(pixelWorld).normalize();
                 var H = V.add(L).normalize();
 
                 Vector3D color = null;
                 if (isPbr) {
                     var mrao = mraoMap != null
-                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap))
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap)).pow(2.2f)
                             : new Vector3D(metallicSlider.getValue(), roughnessSlider.getValue(), aoSlider.getValue());
 
                     var metallic = mrao.x();
@@ -713,12 +708,9 @@ public class MainController {
                             ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap)).pow(2.2f)
                             : ColorUtils.toVector(pbrAlbedoPicker.getValue());
 
-                    //TODO: light color?
-                    Vector3D lightColor = new Vector3D(1f, 1f, 1f);
-
-                    // iterate by all light sources
-                    var distance = light.subtract(pixelWorld).length();
-                    var radiance = lightColor.divide(distance * distance);
+                    // TODO: Take Attenuation into account.
+                    var lightColor = Vector3D.from(1);
+                    var radiance = lightColor;
 
                     var f0 = mix(new Vector3D(0.04f), albedo, metallic);
                     var f = PbrUtils.fresnelSchlick(max(H.dot(V), 0.0f), f0);
@@ -727,21 +719,16 @@ public class MainController {
                     var D = PbrUtils.distributionGGX(N, H, roughness);
                     var G = PbrUtils.geometrySmith(N, V, L, roughness);
                     var numerator = f.mul(D * G);
-                    var denominator = 4.0f * max(N.dot(V), 0.0f) * max(N.dot(L), 0.0f) + 0.0001f;
+                    var denominator = 4.0f * max(N.dot(V), 0.0f) * max(N.dot(L), 0.0f) + 0.001f;
                     var BRDF = numerator.divide(denominator);
 
                     var nDotL = max(N.dot(L), 0.0f);
                     var lambert = albedo.divide(Math.PI);
                     var lO = (kD.mul(lambert).add(BRDF)).mul(radiance).mul(nDotL);
-                    // end light process
 
                     var ambient = Vector3D.from(0.03f).mul(albedo).mul(ao);
                     color = ambient.add(lO);
-                    color = color
-                            .divide(color.add(Vector3D.from(1)))
-                            .pow(1.0f / 2.2f);
                 } else if (isPhong) {
-                    // START: Phong mixed with diffuse/emission maps.
                     Vector3D kA;
                     Vector3D kD;
                     if (diffuseMap != null) {
@@ -756,19 +743,25 @@ public class MainController {
                     var kS = emissionMap == null
                             ? ColorUtils.toVector(kSPicker.getValue())
                             : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
-                    var reflect = L.subtract(N.mul(2 * L.dot(N)));
+                    var reflect = N.mul(2 * L.dot(N)).subtract(L);
 
                     var ambient = kA
                             .mul(iA);
                     var diffuse = kD
-                            .mul(max(-N.dot(L), 0f))
+                            .mul(max(N.dot(L), 0f))
                             .mul(iD);
                     var specular = kS
                             .mul((float) Math.pow(max(reflect.dot(V), 0f), specularAlpha))
                             .mul(iS);
                     color = ambient.add(diffuse).add(specular);
-                    // END: Phong mixed with diffuse/emission maps.
+                } else if (isFlat) {
+                    color = flatColor;
                 }
+
+                // Reinhard tone mapping + Gamma correction.
+                color = color
+                        .divide(color.add(Vector3D.from(1)))
+                        .pow(1.0f / 2.2f);
 
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
