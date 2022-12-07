@@ -38,6 +38,10 @@ public final class GeomUtils {
         return vector3D(element.getVertexNormal());
     }
 
+    public static Vector3D mix(Vector3D i0, Vector3D i1, float t) {
+        return i1.mul(t).add(i0.mul(1 - t));
+    }
+
     public static Vector3D vector3D(Vertex vertex) {
         return new Vector3D(vertex.getX(), vertex.getY(), vertex.getZ());
     }

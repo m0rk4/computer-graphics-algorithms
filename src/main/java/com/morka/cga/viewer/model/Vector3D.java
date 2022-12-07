@@ -6,6 +6,10 @@ public record Vector3D(float x, float y, float z) {
         return (float) Math.sqrt(x * x + y * y + z * z);
     }
 
+    public Vector3D(float a) {
+        this(a, a, a);
+    }
+
     public Vector3D normalize() {
         var length = length();
         return new Vector3D(x / length, y / length, z / length);
@@ -31,6 +35,20 @@ public record Vector3D(float x, float y, float z) {
         );
     }
 
+    /**
+     * Method for `num - vec3` operation.
+     *
+     * @param num num to subtract from
+     * @return num - vec3
+     */
+    public Vector3D subtractFrom(float num) {
+        return new Vector3D(
+                num - x,
+                num - y,
+                num - z
+        );
+    }
+
     public Vector3D add(Vector3D other) {
         return new Vector3D(
                 x + other.x,
@@ -44,6 +62,31 @@ public record Vector3D(float x, float y, float z) {
                 x / divisor,
                 y / divisor,
                 z / divisor
+        );
+    }
+
+    public Vector3D divide(double divisor) {
+        float div = (float) divisor;
+        return new Vector3D(
+                x / div,
+                y / div,
+                z / div
+        );
+    }
+
+    public Vector3D divide(Vector3D divisor) {
+        return new Vector3D(
+                x / divisor.x(),
+                y / divisor.y(),
+                z / divisor.z()
+        );
+    }
+
+    public Vector3D pow(Vector3D divisor) {
+        return new Vector3D(
+                (float) Math.pow(x, divisor.x()),
+                (float) Math.pow(y, divisor.y()),
+                (float) Math.pow(z, divisor.z())
         );
     }
 

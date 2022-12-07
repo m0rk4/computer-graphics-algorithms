@@ -15,6 +15,7 @@ import com.morka.cga.viewer.model.Vector3D;
 import com.morka.cga.viewer.model.Vector4D;
 import com.morka.cga.viewer.utils.ColorUtils;
 import com.morka.cga.viewer.utils.GeomUtils;
+import com.morka.cga.viewer.utils.PbrUtils;
 import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.BooleanProperty;
@@ -56,6 +57,7 @@ import java.util.stream.Collectors;
 
 import static com.morka.cga.viewer.utils.GeomUtils.vector2D;
 import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
+import static com.morka.cga.viewer.utils.GeomUtils.mix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
@@ -212,6 +214,12 @@ public class MainController {
     TextureMap diffuseMap;
     TextureMap normalMap;
     TextureMap emissionMap;
+    TextureMap mraoMap;
+
+    @FXML
+    void onMRAOLoad() {
+        mraoMap = loadTextureFile();
+    }
 
     @FXML
     void onEmissionLoad() {
@@ -582,7 +590,7 @@ public class MainController {
         var iA = ColorUtils.toVector(iAPicker.getValue());
         var iD = ColorUtils.toVector(iDPicker.getValue());
         var iS = ColorUtils.toVector(iSPicker.getValue());
-        var specularAlpha = specularPower.getValue();
+        var specularAlpha = (float) specularPower.getValue();
 
         for (var i = 0; i < totalHeight; i++) {
             var isSecondHalf = i >= t1y - t0y;
@@ -602,18 +610,16 @@ public class MainController {
             var right = !isFirstVertexLeft ? t1 : (isSecondHalf ? t0 : t2);
             var angle = isSecondHalf ? t2 : t0;
 
-            var interpolationCoefLeft = (y - left.vertex().y()) / (angle.vertex().y() - left.vertex().y());
-            var interpolationCoefRight = (y - right.vertex().y()) / (angle.vertex().y() - right.vertex().y());
-
-            var nA = interpolate(interpolationCoefLeft, left.normal(), angle.normal());
-            var nB = interpolate(interpolationCoefRight, right.normal(), angle.normal());
+            var leftWeight = (y - left.vertex().y()) / (angle.vertex().y() - left.vertex().y());
+            var rightWeight = (y - right.vertex().y()) / (angle.vertex().y() - right.vertex().y());
+            var nA = mix(left.normal(), angle.normal(), leftWeight);
+            var nB = mix(right.normal(), angle.normal(), rightWeight);
 
             var leftW = new Vector3D(1f / left.vertex().z(), left.texture().u() / left.vertex().z(), left.texture().v() / left.vertex().z());
             var angleW = new Vector3D(1f / angle.vertex().z(), angle.texture().u() / angle.vertex().z(), angle.texture().v() / angle.vertex().z());
             var rightW = new Vector3D(1f / right.vertex().z(), right.texture().u() / right.vertex().z(), right.texture().v() / right.vertex().z());
-
-            var tA = interpolate(interpolationCoefLeft, leftW, angleW);
-            var tB = interpolate(interpolationCoefRight, rightW, angleW);
+            var tA = mix(leftW, angleW, leftWeight);
+            var tB = mix(rightW, angleW, rightWeight);
 
             var u = ((y - t2.vertex().y()) * d12x + d12y * (t2.vertex().x() - Ax)) / triangleArea;
             var v = ((y - t0.vertex().y()) * d20x + d20y * (t0.vertex().x() - Ax)) / triangleArea;
@@ -642,52 +648,99 @@ public class MainController {
                     texture = texture.add(dT);
                 }
 
-                var zzz = 1f / texture.x();
-                var textureCorrected = new Vector2D(texture.y() * zzz, texture.z() * zzz);
+                var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
+                var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
+                var textureCorrected = new Vector2D(texture.y() / texture.x(), texture.z() / texture.x());
 
-                Vector3D kA;
-                Vector3D kD;
-                if (diffuseMap != null) {
-                    var argb = getTextureArgb(textureCorrected, diffuseMap);
-                    var aD = ColorUtils.toVector4(argb);
-                    kA = new Vector3D(aD.x(), aD.x(), aD.x());
-                    kD = new Vector3D(aD.y(), aD.z(), aD.w());
-                } else {
-                    kA = ColorUtils.toVector(kAPicker.getValue());
-                    kD = ColorUtils.toVector(kDPicker.getValue());
-                }
-
-                var textureNormal = normalMap == null
+                var N = normalMap == null
                         ? normal.normalize()
                         : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
+                var L = light.subtract(pixelWorld).normalize();
+                var V = eye.subtract(pixelWorld).normalize();
+                var H = V.add(L).normalize();
 
-                var kS = emissionMap == null
-                        ? ColorUtils.toVector(kSPicker.getValue())
-                        : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
+                Vector3D color;
+                if (mraoMap != null) {
+                    var mrao = ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap));
 
-                var z = t0.vertex().z() * u + t1.vertex().z() * v + t2.vertex().z() * w;
-                var pixelWorld = toWorld.apply(new Vector3D(x, y, z));
+                    var metallic = mrao.x();
+                    var roughness = mrao.y();
+                    var ao = mrao.z();
+                    var albedo = diffuseMap != null
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap))
+                            : ColorUtils.toVector(kAPicker.getValue()).mul(iA);
 
-                var normalNormalized = textureNormal;
-                var lightNormalized = light.subtract(pixelWorld).normalize();
-                var eyeNormalized = eye.subtract(pixelWorld).normalize();
-                var reflect = lightNormalized.subtract(normalNormalized.mul(2 * lightNormalized.dot(normalNormalized)));
+                    var f0 = new Vector3D(0.04f);
+                    f0 = mix(f0, albedo, metallic);
 
-                var ambient = kA.mul(iA);
-                var diffuse = kD
-                        .mul(Math.max(-normalNormalized.dot(lightNormalized), 0f))
-                        .mul(iD);
-                var specular = kS
-                        .mul((float) Math.pow(Math.max(reflect.dot(eyeNormalized), 0f), specularAlpha))
-                        .mul(iS);
+                    var Lo = new Vector3D(0.0f);
 
-                var color = ambient.add(diffuse).add(specular);
-                var argb = ColorUtils.toArgbWithClamp(color);
+                    //TODO: light color?
+                    Vector3D lightColor = new Vector3D(0.4f, 0.5f, 0.6f);
+
+                    // iterate by all light sources
+                    var distance = light.subtract(pixelWorld).length();
+                    var attenuation = 1.0f / (distance * distance);
+                    var radiance = lightColor.mul(attenuation);
+
+                    var NDF = PbrUtils.distributionGGX(N, H, roughness);
+                    var G = PbrUtils.geometrySmith(N, V, L, roughness);
+                    var f = PbrUtils.fresnelSchlick(Math.max(H.dot(V), 0.0f), f0);
+
+                    var one = new Vector3D(1.0f);
+                    var kS = f;
+                    var kD = one.subtract(kS);
+                    kD = kD.mul(1.0f - metallic);
+
+                    var numerator = f.mul(NDF * G);
+                    var denominator = 4.0f * Math.max(N.dot(V), 0.0f) * Math.max(N.dot(L), 0.0f) + 0.0001f;
+                    var specular = numerator.divide(denominator);
+
+                    float NdotL = Math.max(N.dot(L), 0.0f);
+                    var lOTerm = (kD.mul(albedo).divide(Math.PI).add(specular)).mul(radiance).mul(NdotL);
+                    Lo = lOTerm.add(lOTerm);
+                    // end light process
+
+                    var three = new Vector3D(0.03f);
+                    var ambient = three.mul(albedo).mul(ao);
+                    color = ambient.add(Lo);
+                    color = color.divide(color.add(new Vector3D(1.0f)));
+                    color = color.pow(new Vector3D(1.0f / 2.2f));
+                } else {
+                    // START: Phong mixed with diffuse/emission maps.
+                    Vector3D kA;
+                    Vector3D kD;
+                    if (diffuseMap != null) {
+                        var argb = getTextureArgb(textureCorrected, diffuseMap);
+                        var aD = ColorUtils.toVector4(argb);
+                        kA = new Vector3D(aD.x(), aD.x(), aD.x());
+                        kD = new Vector3D(aD.y(), aD.z(), aD.w());
+                    } else {
+                        kA = ColorUtils.toVector(kAPicker.getValue());
+                        kD = ColorUtils.toVector(kDPicker.getValue());
+                    }
+                    var kS = emissionMap == null
+                            ? ColorUtils.toVector(kSPicker.getValue())
+                            : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
+                    var reflect = L.subtract(N.mul(2 * L.dot(N)));
+
+                    var ambient = kA
+                            .mul(iA);
+                    var diffuse = kD
+                            .mul(Math.max(-N.dot(L), 0f))
+                            .mul(iD);
+                    var specular = kS
+                            .mul((float) Math.pow(Math.max(reflect.dot(V), 0f), specularAlpha))
+                            .mul(iS);
+                    color = ambient.add(diffuse).add(specular);
+                    // END: Phong mixed with diffuse/emission maps.
+                }
+
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
-                    drawPixel(buffer, x, y, argb);
+                    drawPixel(buffer, x, y, ColorUtils.toArgbWithClamp(color));
                     zBuffer[idx] = z;
                 }
             }
@@ -698,10 +751,6 @@ public class MainController {
         var textureX = Math.min(Math.max((int) (texel.u() * map.w()) - 1, 0), map.w() - 1);
         var textureY = Math.min(Math.max((int) ((1 - texel.v()) * map.h()) - 1, 0), map.h() - 1);
         return map.at(textureX, textureY);
-    }
-
-    private static Vector3D interpolate(float t, Vector3D i0, Vector3D i1) {
-        return i1.mul(t).add(i0.mul(1 - t));
     }
 
     private void drawLine(WritableImageView buffer, int x1, int y1, int x2, int y2, int color) {
