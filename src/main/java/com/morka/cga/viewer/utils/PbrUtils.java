@@ -25,7 +25,7 @@ public final class PbrUtils {
         float denominator = (nDotH2 * (a2 - 1.0f) + 1.0f);
         denominator = (float) Math.PI * denominator * denominator;
 
-        return a2 / denominator;
+        return a2 / Math.max(denominator, 0.000001f);
     }
 
     /**
@@ -37,11 +37,12 @@ public final class PbrUtils {
      */
     public static float geometrySchlickGGX(float nDotV, float roughness) {
         float r = (roughness + 1.0f);
+        // TODO: divide by 8 or 2?
         float k = (r * r) / 8.0f;
 
         float denominator = nDotV * (1.0f - k) + k;
 
-        return nDotV / denominator;
+        return nDotV / Math.max(denominator, 0.000001f);
     }
 
     /**
@@ -63,8 +64,8 @@ public final class PbrUtils {
     }
 
     public static Vector3D fresnelSchlick(float cosTheta, Vector3D f0) {
-        float clampedOneMinusCos = Math.max(Math.min(1.0f - cosTheta, 1.0f), 0.0f);
-        float pow = (float) Math.pow(clampedOneMinusCos, 5.0);
+        float clampedOneMinusCos = 1.0f - cosTheta;
+        float pow = (float) Math.pow(clampedOneMinusCos, 5.0f);
         return f0.add(f0.subtractFrom(1.0f).mul(pow));
     }
 }

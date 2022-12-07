@@ -32,7 +32,9 @@ import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.Slider;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -55,13 +57,15 @@ import java.util.function.DoubleConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.morka.cga.viewer.utils.GeomUtils.mix;
 import static com.morka.cga.viewer.utils.GeomUtils.vector2D;
 import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
-import static com.morka.cga.viewer.utils.GeomUtils.mix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
 import static com.morka.cga.viewer.utils.MatrixUtils.getViewMatrix;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
 
@@ -119,7 +123,7 @@ public class MainController {
             () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
             translationBinding, scaleBinding, rotationBinding
     );
-    private final Vector3D light = new Vector3D(0, 0, 1);
+    private final Vector3D light = new Vector3D(0, 0, -50);
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
     private float lastPositionX;
     private float lastPositionY;
@@ -164,6 +168,22 @@ public class MainController {
     @FXML
     private CheckBox normalCalculationCheckbox;
 
+    @FXML
+    private ColorPicker pbrAlbedoPicker;
+
+    @FXML
+    private Slider roughnessSlider;
+
+    @FXML
+    private Slider metallicSlider;
+
+    @FXML
+    private Slider aoSlider;
+
+    @FXML
+    private ToggleGroup shaderToggle;
+
+
     private Map<FaceElement, Vector3D> vertexNormalMap;
     private FrameAndZBuffers currentBuffer;
     private boolean mouseDragging = false;
@@ -180,7 +200,7 @@ public class MainController {
         var translationStep = 1;
         var scaleStep = 1f;
         listenFor(KeyCode.P, () -> scaleProperty.set(scaleProperty.get() + scaleStep));
-        listenFor(KeyCode.M, () -> scaleProperty.set(Math.max(0.05f, scaleProperty.get() - scaleStep)));
+        listenFor(KeyCode.M, () -> scaleProperty.set(max(0.05f, scaleProperty.get() - scaleStep)));
         listenFor(KeyCode.X, KeyCode.RIGHT, () -> xRotationProperty.set(xRotationProperty.get() + rotationStep));
         listenFor(KeyCode.X, KeyCode.LEFT, () -> xRotationProperty.set(xRotationProperty.get() - rotationStep));
         listenFor(KeyCode.Y, KeyCode.RIGHT, () -> yRotationProperty.set(yRotationProperty.get() + rotationStep));
@@ -208,8 +228,24 @@ public class MainController {
         iSPicker.valueProperty().addListener((__, ___, ____) -> repaint());
         kSPicker.valueProperty().addListener((__, ___, ____) -> repaint());
         specularPower.valueProperty().addListener((__, ___, ____) -> repaint());
+        pbrAlbedoPicker.valueProperty().addListener((__, ___, ____) -> repaint());
+        metallicSlider.valueProperty().addListener((__, ___, ____) -> repaint());
+        roughnessSlider.valueProperty().addListener((__, ___, ____) -> repaint());
+        aoSlider.valueProperty().addListener((__, ___, ____) -> repaint());
+        shaderToggle.selectedToggleProperty().addListener((__, ___, toggle) -> {
+            var radio = (RadioButton) toggle;
+            isPbr = "PBR".equalsIgnoreCase(radio.getText());
+            isPhong = "Phong".equalsIgnoreCase(radio.getText());
+            isFlat = "Flat".equalsIgnoreCase(radio.getText());
+            repaint();
+        });
         normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
+
+    boolean isPbr;
+    boolean isPhong = true;
+
+    boolean isFlat;
 
     TextureMap diffuseMap;
     TextureMap normalMap;
@@ -309,6 +345,9 @@ public class MainController {
     }
 
     private void onObjChanged(ObjGroup obj, boolean forceNormalCalculation, boolean forceReset) {
+        if (obj == null)
+            return;
+
         vertexNormalMap = obj.vertexToFaces().entrySet().parallelStream().collect(Collectors.toMap(
                 Map.Entry::getKey,
                 e -> GeomUtils.getNormalForVertex(e.getKey(), e.getValue(), forceNormalCalculation)
@@ -542,7 +581,7 @@ public class MainController {
                               VertexTextureNormal t1,
                               VertexTextureNormal t2,
                               Vector3D light,
-                              Vector3D eye,
+                              Vector3D camera,
                               Function<Vector3D, Vector3D> toWorld) {
         if (t0.vertex().y() > t1.vertex.y()) {
             var temp = t0;
@@ -562,13 +601,13 @@ public class MainController {
             t2 = temp;
         }
 
-        var t2y = Math.min(Math.max(0, (int) t2.vertex().y()), H - 1);
-        var t1y = Math.min(Math.max(0, (int) t1.vertex().y()), H - 1);
-        var t0y = Math.min(Math.max(0, (int) t0.vertex().y()), H - 1);
+        var t2y = min(max(0, (int) t2.vertex().y()), H - 1);
+        var t1y = min(max(0, (int) t1.vertex().y()), H - 1);
+        var t0y = min(max(0, (int) t0.vertex().y()), H - 1);
 
-        var t2x = Math.min(Math.max(0, (int) t2.vertex().x()), W - 1);
-        var t1x = Math.min(Math.max(0, (int) t1.vertex().x()), W - 1);
-        var t0x = Math.min(Math.max(0, (int) t0.vertex().x()), W - 1);
+        var t2x = min(max(0, (int) t2.vertex().x()), W - 1);
+        var t1x = min(max(0, (int) t1.vertex().x()), W - 1);
+        var t0x = min(max(0, (int) t0.vertex().x()), W - 1);
 
         var degenerateTriangle = t0y == t1y && t0y == t2y;
         if (degenerateTriangle)
@@ -658,57 +697,50 @@ public class MainController {
                         .mul(2)
                         .subtract(new Vector3D(1, 1, 1));
                 var L = light.subtract(pixelWorld).normalize();
-                var V = eye.subtract(pixelWorld).normalize();
+                var V = camera.subtract(pixelWorld).normalize();
                 var H = V.add(L).normalize();
 
-                Vector3D color;
-                if (mraoMap != null) {
-                    var mrao = ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap));
+                Vector3D color = null;
+                if (isPbr) {
+                    var mrao = mraoMap != null
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap))
+                            : new Vector3D(metallicSlider.getValue(), roughnessSlider.getValue(), aoSlider.getValue());
 
                     var metallic = mrao.x();
                     var roughness = mrao.y();
                     var ao = mrao.z();
                     var albedo = diffuseMap != null
-                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap))
-                            : ColorUtils.toVector(kAPicker.getValue()).mul(iA);
-
-                    var f0 = new Vector3D(0.04f);
-                    f0 = mix(f0, albedo, metallic);
-
-                    var Lo = new Vector3D(0.0f);
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap)).pow(2.2f)
+                            : ColorUtils.toVector(pbrAlbedoPicker.getValue());
 
                     //TODO: light color?
-                    Vector3D lightColor = new Vector3D(0.4f, 0.5f, 0.6f);
+                    Vector3D lightColor = new Vector3D(1f, 1f, 1f);
 
                     // iterate by all light sources
                     var distance = light.subtract(pixelWorld).length();
-                    var attenuation = 1.0f / (distance * distance);
-                    var radiance = lightColor.mul(attenuation);
+                    var radiance = lightColor.divide(distance * distance);
 
-                    var NDF = PbrUtils.distributionGGX(N, H, roughness);
+                    var f0 = mix(new Vector3D(0.04f), albedo, metallic);
+                    var f = PbrUtils.fresnelSchlick(max(H.dot(V), 0.0f), f0);
+                    var kD = Vector3D.from(1).subtract(f).mul(1.0f - metallic);
+
+                    var D = PbrUtils.distributionGGX(N, H, roughness);
                     var G = PbrUtils.geometrySmith(N, V, L, roughness);
-                    var f = PbrUtils.fresnelSchlick(Math.max(H.dot(V), 0.0f), f0);
+                    var numerator = f.mul(D * G);
+                    var denominator = 4.0f * max(N.dot(V), 0.0f) * max(N.dot(L), 0.0f) + 0.0001f;
+                    var BRDF = numerator.divide(denominator);
 
-                    var one = new Vector3D(1.0f);
-                    var kS = f;
-                    var kD = one.subtract(kS);
-                    kD = kD.mul(1.0f - metallic);
-
-                    var numerator = f.mul(NDF * G);
-                    var denominator = 4.0f * Math.max(N.dot(V), 0.0f) * Math.max(N.dot(L), 0.0f) + 0.0001f;
-                    var specular = numerator.divide(denominator);
-
-                    float NdotL = Math.max(N.dot(L), 0.0f);
-                    var lOTerm = (kD.mul(albedo).divide(Math.PI).add(specular)).mul(radiance).mul(NdotL);
-                    Lo = lOTerm.add(lOTerm);
+                    var nDotL = max(N.dot(L), 0.0f);
+                    var lambert = albedo.divide(Math.PI);
+                    var lO = (kD.mul(lambert).add(BRDF)).mul(radiance).mul(nDotL);
                     // end light process
 
-                    var three = new Vector3D(0.03f);
-                    var ambient = three.mul(albedo).mul(ao);
-                    color = ambient.add(Lo);
-                    color = color.divide(color.add(new Vector3D(1.0f)));
-                    color = color.pow(new Vector3D(1.0f / 2.2f));
-                } else {
+                    var ambient = Vector3D.from(0.03f).mul(albedo).mul(ao);
+                    color = ambient.add(lO);
+                    color = color
+                            .divide(color.add(Vector3D.from(1)))
+                            .pow(1.0f / 2.2f);
+                } else if (isPhong) {
                     // START: Phong mixed with diffuse/emission maps.
                     Vector3D kA;
                     Vector3D kD;
@@ -729,10 +761,10 @@ public class MainController {
                     var ambient = kA
                             .mul(iA);
                     var diffuse = kD
-                            .mul(Math.max(-N.dot(L), 0f))
+                            .mul(max(-N.dot(L), 0f))
                             .mul(iD);
                     var specular = kS
-                            .mul((float) Math.pow(Math.max(reflect.dot(V), 0f), specularAlpha))
+                            .mul((float) Math.pow(max(reflect.dot(V), 0f), specularAlpha))
                             .mul(iS);
                     color = ambient.add(diffuse).add(specular);
                     // END: Phong mixed with diffuse/emission maps.
@@ -748,8 +780,8 @@ public class MainController {
     }
 
     private static int getTextureArgb(Vector2D texel, TextureMap map) {
-        var textureX = Math.min(Math.max((int) (texel.u() * map.w()) - 1, 0), map.w() - 1);
-        var textureY = Math.min(Math.max((int) ((1 - texel.v()) * map.h()) - 1, 0), map.h() - 1);
+        var textureX = min(max((int) (texel.u() * map.w()) - 1, 0), map.w() - 1);
+        var textureY = min(max((int) ((1 - texel.v()) * map.h()) - 1, 0), map.h() - 1);
         return map.at(textureX, textureY);
     }
 

@@ -2,12 +2,20 @@ package com.morka.cga.viewer.model;
 
 public record Vector3D(float x, float y, float z) {
 
+    public Vector3D(double x, double y, double z) {
+        this((float) x, (float) y, (float) z);
+    }
+
     public float length() {
         return (float) Math.sqrt(x * x + y * y + z * z);
     }
 
     public Vector3D(float a) {
         this(a, a, a);
+    }
+
+    public static Vector3D from(float a) {
+        return new Vector3D(a, a, a);
     }
 
     public Vector3D normalize() {
@@ -82,11 +90,19 @@ public record Vector3D(float x, float y, float z) {
         );
     }
 
-    public Vector3D pow(Vector3D divisor) {
+    public Vector3D pow(Vector3D pow) {
         return new Vector3D(
-                (float) Math.pow(x, divisor.x()),
-                (float) Math.pow(y, divisor.y()),
-                (float) Math.pow(z, divisor.z())
+                (float) Math.pow(x, pow.x()),
+                (float) Math.pow(y, pow.y()),
+                (float) Math.pow(z, pow.z())
+        );
+    }
+
+    public Vector3D pow(float pow) {
+        return new Vector3D(
+                (float) Math.pow(x, pow),
+                (float) Math.pow(y, pow),
+                (float) Math.pow(z, pow)
         );
     }
 
