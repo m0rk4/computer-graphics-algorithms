@@ -688,9 +688,7 @@ public class MainController {
 
                 var N = normalMap == null
                         ? normal.normalize()
-                        : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap))
-                        .mul(2)
-                        .subtract(new Vector3D(1, 1, 1));
+                        : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap)).mul(2).subtract(1);
                 var L = light.normalize();
                 var V = camera.subtract(pixelWorld).normalize();
                 var H = V.add(L).normalize();
@@ -698,14 +696,15 @@ public class MainController {
                 Vector3D color = null;
                 if (isPbr) {
                     var mrao = mraoMap != null
-                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap)).pow(2.2f)
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, mraoMap))
                             : new Vector3D(metallicSlider.getValue(), roughnessSlider.getValue(), aoSlider.getValue());
 
                     var metallic = mrao.x();
                     var roughness = mrao.y();
                     var ao = mrao.z();
+                    // TODO: pow(2.2)?
                     var albedo = diffuseMap != null
-                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap)).pow(2.2f)
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap))
                             : ColorUtils.toVector(pbrAlbedoPicker.getValue());
 
                     // TODO: Take Attenuation into account.
@@ -745,23 +744,16 @@ public class MainController {
                             : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
                     var reflect = N.mul(2 * L.dot(N)).subtract(L);
 
-                    var ambient = kA
-                            .mul(iA);
-                    var diffuse = kD
-                            .mul(max(N.dot(L), 0f))
-                            .mul(iD);
-                    var specular = kS
-                            .mul((float) Math.pow(max(reflect.dot(V), 0f), specularAlpha))
-                            .mul(iS);
+                    var ambient = kA.mul(iA);
+                    var diffuse = kD.mul(max(N.dot(L), 0f)).mul(iD);
+                    var specular = kS.mul((float) Math.pow(max(reflect.dot(V), 0f), specularAlpha)).mul(iS);
                     color = ambient.add(diffuse).add(specular);
                 } else if (isFlat) {
                     color = flatColor;
                 }
 
                 // Reinhard tone mapping + Gamma correction.
-                color = color
-                        .divide(color.add(Vector3D.from(1)))
-                        .pow(1.0f / 2.2f);
+                color = color.divide(color.add(1.0f)).pow(1.0f / 2.2f);
 
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
