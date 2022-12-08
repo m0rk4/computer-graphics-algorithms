@@ -103,7 +103,7 @@ public class MainController {
             () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
             translationBinding, scaleBinding, rotationBinding
     );
-    private final Vector3D light = new Vector3D(0, 0, 50);
+    private final Vector3D light = new Vector3D(0, 0, 160);
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
     private float lastPositionX;
     private float lastPositionY;
@@ -657,7 +657,7 @@ public class MainController {
                 var N = normalMap == null
                         ? normal.normalize()
                         : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap)).mul(2).subtract(1);
-                var L = light.normalize();
+                var L = light.subtract(pixelWorld).normalize();
                 var V = camera.subtract(pixelWorld).normalize();
                 var H = V.add(L).normalize();
 
@@ -670,9 +670,8 @@ public class MainController {
                     var metallic = mrao.x();
                     var roughness = mrao.y();
                     var ao = mrao.z();
-                    // TODO: pow(2.2)?
                     var albedo = diffuseMap != null
-                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap))
+                            ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap)).pow(2.2f)
                             : ColorUtils.toVector(pbrAlbedoPicker.getValue());
 
                     // TODO: Take Attenuation into account.
