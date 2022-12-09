@@ -18,12 +18,23 @@ import com.morka.cga.viewer.utils.GeomUtils;
 import com.morka.cga.viewer.utils.PbrUtils;
 import javafx.application.Platform;
 import javafx.beans.binding.ObjectBinding;
-import javafx.beans.property.*;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.FloatProperty;
+import javafx.beans.property.IntegerProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleFloatProperty;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Group;
 import javafx.scene.Node;
-import javafx.scene.control.*;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ColorPicker;
+import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.RadioButton;
+import javafx.scene.control.Slider;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -31,23 +42,48 @@ import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
+import lombok.Data;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.function.DoubleConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static com.morka.cga.viewer.utils.GeomUtils.*;
-import static com.morka.cga.viewer.utils.MatrixUtils.*;
+import static com.morka.cga.viewer.utils.GeomUtils.mix;
+import static com.morka.cga.viewer.utils.GeomUtils.vector2D;
+import static com.morka.cga.viewer.utils.GeomUtils.vector4D;
+import static com.morka.cga.viewer.utils.MatrixUtils.buildProjectionMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.buildViewportMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.getModelMatrix;
+import static com.morka.cga.viewer.utils.MatrixUtils.getViewMatrix;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Objects.nonNull;
 import static javafx.beans.binding.Bindings.createObjectBinding;
+
+@Data
+class OrbitHolder {
+    private float x = 0;
+    private float y = 0;
+    private float radius = 200;
+    private float lastX = 0;
+    private float lastY = 0;
+    private double lastTheta = 0;
+    private double lastPhi = 0;
+
+    private float camX;
+    private float camY;
+    private float camZ;
+}
 
 public class MainController {
     private static final Group FRAMES = new Group();
@@ -84,9 +120,11 @@ public class MainController {
     private final FloatProperty yRotationProperty = new SimpleFloatProperty(0);
     private final FloatProperty zRotationProperty = new SimpleFloatProperty(0);
     private final FloatProperty scaleProperty = new SimpleFloatProperty(1);
-    private float cameraX = 0;
-    private float cameraY = 0;
-    private float cameraRadius = 100;
+
+    private final OrbitHolder cameraOrbit = new OrbitHolder();
+    private final OrbitHolder lightOrbit = new OrbitHolder();
+    private OrbitHolder currentOrbit = cameraOrbit;
+
     private final ObjectBinding<Vector3D> translationBinding = createObjectBinding(
             () -> new Vector3D(xTranslationProperty.get(), yTranslationProperty.get(), zTranslationProperty.get()),
             xTranslationProperty, yTranslationProperty, zTranslationProperty
@@ -103,12 +141,7 @@ public class MainController {
             () -> getModelMatrix(translationBinding.get(), scaleBinding.get(), rotationBinding.get()),
             translationBinding, scaleBinding, rotationBinding
     );
-    private final Vector3D light = new Vector3D(0, 0, 160);
     private final ConcurrentHashMap<Vertex, Vector3D> vertexWorldNormalMap = new ConcurrentHashMap<>();
-    private float lastPositionX;
-    private float lastPositionY;
-    private double lastTheta = 0;
-    private double lastPhi = 0;
 
     @FXML
     private BorderPane pane;
@@ -155,6 +188,8 @@ public class MainController {
 
     @FXML
     private ToggleGroup shaderToggle;
+    @FXML
+    private ToggleGroup flyToggle;
 
     private Map<FaceElement, Vector3D> vertexNormalMap;
     private FrameAndZBuffers currentBuffer;
@@ -210,12 +245,16 @@ public class MainController {
             isFlat = "Flat".equalsIgnoreCase(radio.getText());
             repaint();
         });
+        flyToggle.selectedToggleProperty().addListener((__, ___, toggle) -> {
+            var radio = (RadioButton) toggle;
+            currentOrbit = "Camera".equalsIgnoreCase(radio.getText()) ? cameraOrbit : lightOrbit;
+            repaint();
+        });
         normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
 
     boolean isPbr;
     boolean isPhong = true;
-
     boolean isFlat;
 
     TextureMap diffuseMap;
@@ -299,15 +338,15 @@ public class MainController {
     }
 
     private void onMousePressed(MouseEvent e) {
-        lastPositionX = (float) e.getX();
-        lastPositionY = (float) e.getY();
+        currentOrbit.setLastX((float) e.getX());
+        currentOrbit.setLastY((float) e.getY());
         mouseDragging = true;
     }
 
     private void onScroll(ScrollEvent e) {
         var dy = (float) e.getDeltaY();
         if (Double.compare(dy, 0.0) != 0) {
-            cameraRadius -= dy / 20;
+            currentOrbit.setRadius(currentOrbit.getRadius() - dy / 20);
             repaint();
         }
     }
@@ -334,8 +373,8 @@ public class MainController {
     private void onMouseDragged(MouseEvent e) {
         if (!mouseDragging)
             return;
-        cameraX = (float) e.getX();
-        cameraY = (float) e.getY();
+        currentOrbit.setX((float) e.getX());
+        currentOrbit.setY((float) e.getY());
         repaint();
     }
 
@@ -347,9 +386,6 @@ public class MainController {
         yRotationProperty.set(0);
         zRotationProperty.set(0);
         scaleProperty.set(1);
-        cameraX = 0;
-        cameraY = 0;
-        cameraRadius = 100;
     }
 
     private void addUiNode(Node node) {
@@ -396,27 +432,30 @@ public class MainController {
             KEYS.get(code).set(false);
     }
 
-    private Vector3D getCameraVector(float posX, float posY, float radius) {
-        var dx = lastPositionX - posX;
-        var dy = posY - lastPositionY;
+    private Vector3D getOrbitingVector(float posX, float posY, float radius) {
+        var dx = currentOrbit.getLastX() - posX;
+        var dy = posY - currentOrbit.getLastY();
 
-        lastPositionX = posX;
-        lastPositionY = posY;
+        currentOrbit.setLastX(posX);
+        currentOrbit.setLastY(posY);
 
-        var theta = lastTheta + CAMERA_SENSITIVITY * dy;
-        lastTheta = theta;
+        var theta = currentOrbit.getLastTheta() + CAMERA_SENSITIVITY * dy;
+        currentOrbit.setLastTheta(theta);
 
         if (theta < Math.PI / -2)
             theta = Math.PI / -2;
         else if (theta > Math.PI / 2)
             theta = Math.PI / 2;
 
-        var phi = (lastPhi + CAMERA_SENSITIVITY * dx) % (Math.PI * 2);
-        lastPhi = phi;
+        var phi = (currentOrbit.getLastPhi() + CAMERA_SENSITIVITY * dx) % (Math.PI * 2);
+        currentOrbit.setLastPhi(phi);
 
         var eyeX = (float) (radius * Math.cos(theta) * Math.cos(phi));
         var eyeY = (float) (radius * Math.sin(theta));
         var eyeZ = (float) (radius * Math.cos(theta) * Math.sin(phi));
+        currentOrbit.setCamX(eyeX);
+        currentOrbit.setCamY(eyeY);
+        currentOrbit.setCamZ(eyeZ);
         return new Vector3D(eyeX, eyeY, eyeZ);
     }
 
@@ -429,7 +468,8 @@ public class MainController {
                 frameBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
                 System.arraycopy(Z_BUFFER_INIT_ARRAY, 0, zBuffer, 0, zBuffer.length);
 
-                var camera = getCameraVector(cameraX, cameraY, cameraRadius);
+                var light = getLight();
+                var camera = getCamera();
                 var worldMatrix = modelMatrix.get();
                 var viewMatrix = getViewMatrix(camera);
                 var invViewport = VIEWPORT_MATRIX.invert();
@@ -709,10 +749,11 @@ public class MainController {
                     var kS = emissionMap == null
                             ? ColorUtils.toVector(kSPicker.getValue())
                             : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap));
-                    var reflect = N.mul(2 * L.dot(N)).subtract(L);
+                    var nDotL = N.dot(L);
+                    var reflect = N.mul(2 * nDotL).subtract(L);
 
                     var ambient = kA.mul(iA);
-                    var diffuse = kD.mul(max(N.dot(L), 0f)).mul(iD);
+                    var diffuse = kD.mul(max(nDotL, 0)).mul(iD);
                     var specular = kS.mul((float) Math.pow(max(reflect.dot(V), 0f), specularAlpha)).mul(iS);
                     color = ambient.add(diffuse).add(specular);
                 } else if (isFlat) {
@@ -757,6 +798,17 @@ public class MainController {
                 y1 += sy;
             }
         }
+    }
+
+    private Vector3D getCamera() {
+        return getOrbitingVector(currentOrbit.getX(), currentOrbit.getY(), currentOrbit.getRadius());
+    }
+
+    private Vector3D getLight() {
+        if (currentOrbit == cameraOrbit) {
+            return new Vector3D(lightOrbit.getCamX(), lightOrbit.getCamY(), lightOrbit.getCamZ());
+        }
+        return getCamera();
     }
 
     private void drawPixel(WritableImageView buffer, int x, int y, int argbColor) {

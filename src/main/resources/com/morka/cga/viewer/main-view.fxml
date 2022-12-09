@@ -31,6 +31,17 @@
             <Button mnemonicParsing="false" onAction="#onNormalLoad" text="Normal Map" />
             <Button mnemonicParsing="false" onAction="#onEmissionLoad" text="Emission Map" />
             <Button mnemonicParsing="false" onAction="#onMRAOLoad" text="MRAO Map" />
+         <Label text="Fly Mode:">
+            <padding>
+               <Insets left="50.0" />
+            </padding>
+         </Label>
+         <RadioButton mnemonicParsing="false" selected="true" text="Camera">
+            <toggleGroup>
+               <ToggleGroup fx:id="flyToggle" />
+            </toggleGroup>
+         </RadioButton>
+         <RadioButton mnemonicParsing="false" text="Light" toggleGroup="$flyToggle" />
         </ToolBar>
     </top>
     <left>
