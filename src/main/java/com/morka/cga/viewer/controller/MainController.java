@@ -122,7 +122,12 @@ public class MainController {
     private final FloatProperty scaleProperty = new SimpleFloatProperty(1);
 
     private final OrbitHolder cameraOrbit = new OrbitHolder();
-    private final OrbitHolder lightOrbit = new OrbitHolder();
+    private final OrbitHolder[] lightOrbits = new OrbitHolder[]{
+            new OrbitHolder(),
+            new OrbitHolder(),
+            new OrbitHolder(),
+            new OrbitHolder()
+    };
     private OrbitHolder currentOrbit = cameraOrbit;
 
     private final ObjectBinding<Vector3D> translationBinding = createObjectBinding(
@@ -190,6 +195,8 @@ public class MainController {
     private ToggleGroup shaderToggle;
     @FXML
     private ToggleGroup flyToggle;
+    @FXML
+    private ToggleGroup toneMappingToggle;
 
     private Map<FaceElement, Vector3D> vertexNormalMap;
     private FrameAndZBuffers currentBuffer;
@@ -247,12 +254,25 @@ public class MainController {
         });
         flyToggle.selectedToggleProperty().addListener((__, ___, toggle) -> {
             var radio = (RadioButton) toggle;
-            currentOrbit = "Camera".equalsIgnoreCase(radio.getText()) ? cameraOrbit : lightOrbit;
+            final String text = radio.getText();
+            if ("Camera".equalsIgnoreCase(text)) {
+                currentOrbit = cameraOrbit;
+            } else {
+                var index = Integer.parseInt(text) - 1;
+                currentOrbit = lightOrbits[index];
+            }
+            repaint();
+        });
+        toneMappingToggle.selectedToggleProperty().addListener((__, ___, toggle) -> {
+            var radio = (RadioButton) toggle;
+            isReinhart = !radio.getText().contains("ACES");
             repaint();
         });
         normalCalculationCheckbox.selectedProperty().addListener((__, ___, selected) -> onObjChanged(CURRENT_OBJ.get(), selected, false));
     }
 
+
+    boolean isReinhart = true;
     boolean isPbr;
     boolean isPhong = true;
     boolean isFlat;
@@ -468,7 +488,7 @@ public class MainController {
                 frameBuffer.setPixels(BACKGROUND_COLOR_ARRAY);
                 System.arraycopy(Z_BUFFER_INIT_ARRAY, 0, zBuffer, 0, zBuffer.length);
 
-                var light = getLight();
+                var lights = getLights();
                 var camera = getCamera();
                 var worldMatrix = modelMatrix.get();
                 var viewMatrix = getViewMatrix(camera);
@@ -528,7 +548,7 @@ public class MainController {
                     if (N.dot(V) <= 0)
                         return;
 
-                    var flat = max(N.dot(light.normalize()), 0);
+                    var flat = max(N.dot(lights[0].normalize()), 0);
 
                     drawTriangle(
                             frameBuffer,
@@ -548,7 +568,7 @@ public class MainController {
                                     vector2D(elements[2].getVertexTexture()),
                                     n2
                             ),
-                            light,
+                            lights,
                             camera,
                             viewportToWorldConverter,
                             new Vector3D(flat, flat, flat)
@@ -580,7 +600,7 @@ public class MainController {
                               VertexTextureNormal t0,
                               VertexTextureNormal t1,
                               VertexTextureNormal t2,
-                              Vector3D light,
+                              Vector3D[] lights,
                               Vector3D camera,
                               Function<Vector3D, Vector3D> toWorld,
                               Vector3D flatColor) {
@@ -697,9 +717,7 @@ public class MainController {
                 var N = normalMap == null
                         ? normal.normalize()
                         : ColorUtils.toVector(getTextureArgb(textureCorrected, normalMap)).mul(2).subtract(1);
-                var L = light.subtract(pixelWorld).normalize();
                 var V = camera.subtract(pixelWorld).normalize();
-                var H = V.add(L).normalize();
 
                 Vector3D color = null;
                 if (isPbr) {
@@ -714,27 +732,40 @@ public class MainController {
                             ? ColorUtils.toVector(getTextureArgb(textureCorrected, diffuseMap)).pow(2.2f)
                             : ColorUtils.toVector(pbrAlbedoPicker.getValue());
 
-                    // TODO: Take Attenuation into account.
-                    var lightColor = Vector3D.from(1);
-                    var radiance = lightColor;
+                    var lO = Vector3D.from(0);
+                    for (var light : lights) {
+                        var L = light.subtract(pixelWorld).normalize();
+                        var H = V.add(L).normalize();
 
-                    var f0 = mix(new Vector3D(0.04f), albedo, metallic);
-                    var f = PbrUtils.fresnelSchlick(max(H.dot(V), 0.0f), f0);
-                    var kD = Vector3D.from(1).subtract(f).mul(1.0f - metallic);
+                        var distance = light.subtract(pixelWorld).length();
+                        var lightColor = Vector3D.from(1000);
+                        var radiance = lightColor.divide(distance * distance + 0.001f);
 
-                    var D = PbrUtils.distributionGGX(N, H, roughness);
-                    var G = PbrUtils.geometrySmith(N, V, L, roughness);
-                    var numerator = f.mul(D * G);
-                    var denominator = 4.0f * max(N.dot(V), 0.0f) * max(N.dot(L), 0.0f) + 0.001f;
-                    var BRDF = numerator.divide(denominator);
+                        var f0 = mix(new Vector3D(0.04f), albedo, metallic);
+                        var f = PbrUtils.fresnelSchlick(max(H.dot(V), 0.0f), f0);
+                        var kD = Vector3D.from(1).subtract(f).mul(1.0f - metallic);
 
-                    var nDotL = max(N.dot(L), 0.0f);
-                    var lambert = albedo.divide(Math.PI);
-                    var lO = (kD.mul(lambert).add(BRDF)).mul(radiance).mul(nDotL);
+                        var D = PbrUtils.distributionGGX(N, H, roughness);
+                        var G = PbrUtils.geometrySmith(N, V, L, roughness);
+                        var numerator = f.mul(D * G);
+                        var denominator = 4.0f * max(N.dot(V), 0.0f) * max(N.dot(L), 0.0f) + 0.001f;
+                        var BRDF = numerator.divide(denominator);
+
+                        var emission = emissionMap == null
+                                ? Vector3D.from(0)
+                                : ColorUtils.toVector(getTextureArgb(textureCorrected, emissionMap)).mul(10);
+
+                        var nDotL = max(N.dot(L), 0.0f);
+                        var lambert = albedo.divide(Math.PI);
+                        var component = (kD.mul(lambert).add(BRDF)).mul(radiance).mul(nDotL).add(emission);
+                        lO = lO.add(component);
+                    }
 
                     var ambient = Vector3D.from(0.03f).mul(albedo).mul(ao);
                     color = ambient.add(lO);
                 } else if (isPhong) {
+                    var L = lights[0].subtract(pixelWorld).normalize();
+
                     Vector3D kA;
                     Vector3D kD;
                     if (diffuseMap != null) {
@@ -760,8 +791,12 @@ public class MainController {
                     color = flatColor;
                 }
 
-                // Reinhard tone mapping + Gamma correction.
-                color = color.divide(color.add(1.0f)).pow(1.0f / 2.2f);
+                if (isReinhart) {
+                    color = color.divide(color.add(1));
+                } else {
+                    color = ACESFilm(color);
+                }
+                color = color.pow(1.0f / 2.2f);
 
                 var idx = x + y * W;
                 if (zBuffer[idx] < z) {
@@ -770,6 +805,20 @@ public class MainController {
                 }
             }
         }
+    }
+
+    Vector3D ACESFilm(Vector3D x) {
+        var a = 2.51f;
+        var b = 0.03f;
+        var c = 2.43f;
+        var d = 0.59f;
+        var e = 0.14f;
+        var color = (x.mul(x.mul(a).add(b))).divide(x.mul(x.mul(c).add(d)).add(e));
+        return new Vector3D(
+                min(max(color.x(), 0), 1),
+                min(max(color.y(), 0), 1),
+                min(max(color.z(), 0), 1)
+        );
     }
 
     private static int getTextureArgb(Vector2D texel, TextureMap map) {
@@ -804,11 +853,13 @@ public class MainController {
         return getOrbitingVector(currentOrbit.getX(), currentOrbit.getY(), currentOrbit.getRadius());
     }
 
-    private Vector3D getLight() {
-        if (currentOrbit == cameraOrbit) {
-            return new Vector3D(lightOrbit.getCamX(), lightOrbit.getCamY(), lightOrbit.getCamZ());
-        }
-        return getCamera();
+    private Vector3D[] getLights() {
+        return new Vector3D[]{
+                new Vector3D(lightOrbits[0].getCamX(), lightOrbits[0].getCamY(), lightOrbits[0].getCamZ()),
+                new Vector3D(lightOrbits[1].getCamX(), lightOrbits[1].getCamY(), lightOrbits[1].getCamZ()),
+                new Vector3D(lightOrbits[2].getCamX(), lightOrbits[2].getCamY(), lightOrbits[2].getCamZ()),
+                new Vector3D(lightOrbits[3].getCamX(), lightOrbits[3].getCamY(), lightOrbits[3].getCamZ()),
+        };
     }
 
     private void drawPixel(WritableImageView buffer, int x, int y, int argbColor) {

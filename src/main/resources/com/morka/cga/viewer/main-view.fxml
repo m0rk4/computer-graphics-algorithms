@@ -41,7 +41,26 @@
                <ToggleGroup fx:id="flyToggle" />
             </toggleGroup>
          </RadioButton>
-         <RadioButton mnemonicParsing="false" text="Light" toggleGroup="$flyToggle" />
+         <Label text="Lights">
+            <padding>
+               <Insets left="50.0" />
+            </padding>
+         </Label>
+         <RadioButton mnemonicParsing="false" text="1" toggleGroup="$flyToggle" />
+         <RadioButton mnemonicParsing="false" text="2" toggleGroup="$flyToggle" />
+         <RadioButton mnemonicParsing="false" text="3" toggleGroup="$flyToggle" />
+         <RadioButton mnemonicParsing="false" text="4" toggleGroup="$flyToggle" />
+         <Label text="Tone Mapping">
+            <padding>
+               <Insets left="50.0" />
+            </padding>
+         </Label>
+         <RadioButton mnemonicParsing="false" selected="true" text="Reinhart">
+            <toggleGroup>
+               <ToggleGroup fx:id="toneMappingToggle" />
+            </toggleGroup>
+         </RadioButton>
+         <RadioButton mnemonicParsing="false" text="ACES Film" toggleGroup="$toneMappingToggle" />
         </ToolBar>
     </top>
     <left>
